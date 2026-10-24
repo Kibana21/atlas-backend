@@ -5,7 +5,7 @@ UV := uv run --quiet --locked
 # Spec default 8000; override when another local service already uses it (e.g. `make api API_PORT=8100`).
 API_PORT ?= 8000
 
-.PHONY: setup lock-check lint format-check typecheck test check api doctor specs export-openapi contract
+.PHONY: setup lock-check lint format-check typecheck test check api doctor specs export-openapi contract security
 
 ## setup: install the locked environment; create local env files from the examples if absent
 setup:
@@ -62,3 +62,10 @@ contract: specs export-openapi
 	$(UV) python scripts/contract_subset.py build/specs/contracts/openapi/atlas-api.yaml contract-pending.yaml build/contract-compared.json
 	uv run --quiet --locked --project build/specs/tools python build/specs/tools/contract_conformance.py conform \
 		--contract build/contract-compared.json --implementation build/openapi.json
+
+## security: dependency vulnerability audit + infrastructure-free security/config tests
+security:
+	@mkdir -p build
+	uv export --quiet --locked --no-dev --no-emit-project --format requirements-txt > build/requirements-runtime.txt
+	$(UV) pip-audit --strict --requirement build/requirements-runtime.txt --disable-pip
+	$(UV) pytest -m security -q --no-cov

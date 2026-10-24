@@ -1,0 +1,100 @@
+# atlas-backend CI (ATLAS-001 B-28; amendment A5). No shared infrastructure: this workflow never
+# connects to the owner's local PostgreSQL or Redis and declares no service containers.
+# Hardening (ci-access.md §5, Mode A): permissions {} with read-only jobs; actions pinned by full
+# commit SHA; validation images digest-pinned via the pinned atlas-specs tools; no secrets; the
+# privileged PR-target trigger is never used. Every required job runs on pull_request and on main.
+name: backend-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: backend-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.10.0"
+  UV_PYTHON_DOWNLOADS: never   # ubuntu-24.04 system Python 3.12
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: make lock-check
+      - run: uv sync --locked
+      - run: make lint format-check typecheck
+
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: make test   # unit + security-marked tests, coverage fail_under 85
+
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read pinned atlas-specs commit
+        id: lock
+        run: echo "sha=$(awk -F'"' '/^specs_commit:/{print $2}' specs.lock)" >> "$GITHUB_OUTPUT"
+      - name: Checkout atlas-specs at the pinned commit (public, read-only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Kibana21/atlas-specs
+          ref: ${{ steps.lock.outputs.sha }}
+          path: .deps/atlas-specs
+          fetch-depth: 0       # main reachability and release tags for --release validation
+          fetch-tags: true
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: make contract SPECS_DIR=.deps/atlas-specs
+
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: make security
