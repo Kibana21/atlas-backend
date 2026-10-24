@@ -145,3 +145,20 @@ async def test_failures_and_timeouts_hide_connection_details(monkeypatch: pytest
     slow = _client(monkeypatch, _FakeClient(delay=1), timeout=0.05)
     with pytest.raises(r.RedisUnavailable):
         await slow.ping()
+
+
+def test_stale_connections_are_replaced_once_on_connection_errors_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A001-DEF-01: one reconnect for a connection that died while idle; timeouts are not retried."""
+    captured: dict[str, Any] = {}
+
+    def from_url(url: str, **kwargs: Any) -> _FakeClient:
+        captured.update(kwargs)
+        return _FakeClient()
+
+    monkeypatch.setattr(redis.asyncio.Redis, "from_url", from_url)
+    r.AtlasRedis("redis://localhost:6379/11", PREFIX, expected_db=11)
+    retry = captured["retry"]
+    assert retry._retries == r.RECONNECT_ATTEMPTS == 1
+    assert retry._supported_errors == (redis.exceptions.ConnectionError,)
+    assert "retry_on_timeout" not in captured
+    assert "retry_on_error" not in captured
