@@ -38,22 +38,34 @@ class FaultProxy:
         probe.bind(("127.0.0.1", 0))
         self.port = int(probe.getsockname()[1])
         probe.close()
-        self._listener: socket.socket | None = None
+        self._listener: tuple[socket.socket, threading.Event, threading.Thread] | None = None
         self._sockets: set[socket.socket] = set()
         self._lock = threading.Lock()
 
     def start(self) -> None:
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind(("127.0.0.1", self.port))
-        listener.listen()
-        self._listener = listener
-        threading.Thread(target=self._accept, args=(listener,), daemon=True).start()
+        try:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", self.port))
+            listener.listen()
+            # The accept loop polls a stop flag: on Linux, close() from another thread does not
+            # interrupt a blocked accept(), so a closed-but-blocked listener would keep accepting.
+            listener.settimeout(0.05)
+        except OSError:
+            listener.close()
+            raise
+        stopping = threading.Event()
+        thread = threading.Thread(target=self._accept, args=(listener, stopping), daemon=True)
+        thread.start()
+        self._listener = (listener, stopping, thread)
 
     def stop(self) -> None:
-        """Stop listening and drop every open connection (both directions)."""
-        listener, self._listener = self._listener, None
-        if listener is not None:
+        """Stop listening (new connections are refused) and drop every open connection."""
+        current, self._listener = self._listener, None
+        if current is not None:
+            listener, stopping, thread = current
+            stopping.set()
+            thread.join(timeout=2)
             listener.close()
         with self._lock:
             sockets, self._sockets = self._sockets, set()
@@ -62,17 +74,21 @@ class FaultProxy:
                 s.shutdown(socket.SHUT_RDWR)
             s.close()
 
-    def _accept(self, listener: socket.socket) -> None:
-        while True:
+    def _accept(self, listener: socket.socket, stopping: threading.Event) -> None:
+        while not stopping.is_set():
             try:
                 client, _ = listener.accept()
+            except TimeoutError:
+                continue
             except OSError:
-                return  # listener closed
+                return
+            client.settimeout(None)
             try:
                 upstream = socket.create_connection(self.upstream, timeout=2)
             except OSError:
                 client.close()
                 continue
+            upstream.settimeout(None)
             with self._lock:
                 self._sockets.update({client, upstream})
             for src, dst in ((client, upstream), (upstream, client)):
