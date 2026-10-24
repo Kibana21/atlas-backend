@@ -6,12 +6,13 @@ Independent Git repo (`origin` = github.com/Kibana21/atlas-backend, **public**).
 
 ## Status
 
-ATLAS-001 Checkpoints 2 and 3 are merged:
+ATLAS-001 Checkpoints 2, 3 and 4 are merged:
 
 - CP2 (B-01…B-08, B-27/B-28): app shell and settings with environment guards; correlation IDs, JSON logging with redaction, the error envelope and security headers; `/api/v1/health/live` and `/api/v1/diagnostics/build`; doctor, contract conformance and CI.
-- CP3 (B-09…B-12): runtime-role async engine; `/health/ready` database check (still contract-pending until B-13 adds Redis); Alembic `0001_baseline`; migration and least-privilege integration tests; CI `integration` job on an isolated `postgres:15`.
+- CP3 (B-09…B-12): runtime-role async engine; Alembic `0001_baseline`; migration and least-privilege integration tests; CI `integration` job on an isolated `postgres:15`.
+- CP4 (B-13…B-17): Atlas-scoped Redis client; `/health/ready` (database + Redis), so the full contract conforms and `contract-pending.yaml` is empty; Taskiq broker, `diagnostics.ping`, worker round trip, Redis safety check, `make worker`/`worker-smoke`; CI Redis service.
 
-The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). Next is CP4 (B-13+: Redis/Taskiq), which needs **owner authorization**. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/ATLAS-001-engineering-foundation/evidence.md`.
+The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). Next is CP5 (B-19+: contract drills, response contract tests, images, README), which needs **owner authorization**. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/ATLAS-001-engineering-foundation/evidence.md`.
 
 ## Commands
 
@@ -23,12 +24,14 @@ make security           # pip-audit of runtime deps + security/hygiene tests
 make api API_PORT=8100  # dev server on 127.0.0.1; port 8000 is often taken by other local services
 make migrate            # alembic upgrade head on atlas_db as atlas_migrator (.env)
 make integration        # integration tests on atlas_test as the test roles (.env.test)
+make worker             # Taskiq worker on atlas:local:taskiq:queue (DB 10); SIGTERM/Ctrl+C stops it gracefully
+make worker-smoke       # with make worker running: enqueue ping, await marker, delete it
 make doctor             # read-only preflight of local PostgreSQL/Redis (SNAPSHOT=file for an inventory)
 make specs              # only the pinned-specs extraction + specs.lock validation
 make export-openapi     # build/openapi.json
 ```
 
-CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`, `contract`, `security` and `integration`. They run on every PR and on push to `main`, and are never skipped. CI **never** connects to local PostgreSQL/Redis: `integration` uses its own digest-pinned `postgres:15` service with scram authentication, bootstrapped by `scripts/db/bootstrap.sql` (the approved proposal + one CI-only block, drift-checked).
+CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`, `contract`, `security` and `integration`. They run on every PR and on push to `main`, and are never skipped. CI **never** connects to local PostgreSQL/Redis: `integration` uses its own digest-pinned `postgres:15` (scram authentication) and `redis:7.4` services, bootstrapped by `scripts/db/bootstrap.sql` (the approved proposal + one CI-only block, drift-checked).
 
 ## Workflow and approval boundaries
 
@@ -52,7 +55,7 @@ CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`
 - **Specs authority:**
   - `specs.lock` pins a full 40-hex `atlas-specs` SHA (currently the `contract-v0.1.0` commit). Release builds pin a released tag's commit.
   - The generated OpenAPI must match the pinned contract.
-  - `contract-pending.yaml` lists only operations whose landing task has not merged. Each entry names its task, and the list is empty by Gate G5.
+  - `contract-pending.yaml` lists only operations whose landing task has not merged. It is empty since CP4 and must stay empty (re-adding an implemented operation fails conformance).
   - Never edit the contract here. Change `atlas-specs` first. If the specs conflict, stop and report.
 - **Shared local services** (owner's PostgreSQL 15 and Redis, shared with other projects):
   - Read-only without explicit approval.

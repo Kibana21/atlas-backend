@@ -13,8 +13,7 @@ class HealthLive(BaseModel):
 
 class ReadinessChecks(BaseModel):
     database: Literal["ok"]
-    # `redis: ok` is added with the Redis check in B-13 (CP4); until then the operation stays in
-    # contract-pending.yaml and out of the generated schema.
+    redis: Literal["ok"]
 
 
 class HealthReady(BaseModel):

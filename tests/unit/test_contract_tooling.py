@@ -75,8 +75,8 @@ def test_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_repository_pending_list_is_well_formed() -> None:
     entries = yaml.safe_load((ROOT / "contract-pending.yaml").read_text())["pending_operations"]
-    assert [e["operation_id"] for e in entries] == ["getHealthReady"]
-    assert all(e["lands_in"].startswith("B-") for e in entries)
+    # B-18 (brought forward to CP4): every contract operation is implemented; the list stays empty.
+    assert entries == []
 
 
 def test_export_is_deterministic_and_matches_dialect() -> None:
@@ -86,5 +86,6 @@ def test_export_is_deterministic_and_matches_dialect() -> None:
     assert spec["info"]["version"] == "0.1.0"
     assert {op["operationId"] for item in spec["paths"].values() for op in item.values()} == {
         "getHealthLive",
+        "getHealthReady",
         "getDiagnosticsBuild",
     }

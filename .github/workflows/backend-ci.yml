@@ -1,6 +1,6 @@
 # atlas-backend CI (ATLAS-001 B-28; amendment A5; CP3 `integration`). No shared infrastructure: this
 # workflow never connects to the owner's local PostgreSQL or Redis. The `integration` job uses only its
-# own isolated, digest-pinned postgres:15 service with password authentication (FR-39).
+# own isolated, digest-pinned postgres:15 (password authentication, FR-39) and redis:7.4 services.
 # Hardening (ci-access.md §5, Mode A): permissions {} with read-only jobs; actions pinned by full
 # commit SHA; validation images digest-pinned via the pinned atlas-specs tools; no secrets; the
 # privileged PR-target trigger is never used. Every required job runs on pull_request and on main.
@@ -101,7 +101,7 @@ jobs:
       - run: make security
 
   integration:
-    # CP3 (B-09..B-12) with the database parts of B-22/B-23 brought forward; Redis joins in CP4.
+    # CP3 (B-09..B-12) and CP4 (B-13..B-16): database, Redis readiness and the worker round trip.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -119,6 +119,13 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+      redis:
+        # Job-local Redis (never the owner's shared server): same DB indexes and prefixes as local.
+        image: redis:7.4.9@sha256:a8f08480e1f88f2647fed492d1178c06abb0d0c1fbf02c682a61e2f483fb3954
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 5s --health-retries 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -170,13 +177,25 @@ jobs:
           uv run alembic upgrade head
           uv run alembic current | tee build-alembic-current.txt
           grep -q '^0001_baseline (head)$' build-alembic-current.txt
-      - name: Integration tests on atlas_test, including ci_auth (B-09, B-11, B-12, FR-39)
+      - name: Integration tests on atlas_test and Redis DB 11, incl. ci_auth and worker round trip (CP3, CP4)
         env:
           ATLAS_ENV: test
           ATLAS_DATABASE_URL: postgresql+psycopg://atlas_test_app:${{ env.ATLAS_TEST_APP_PASSWORD }}@localhost:5432/atlas_test
           ATLAS_MIGRATION_DATABASE_URL: postgresql+psycopg://atlas_test_migrator:${{ env.ATLAS_TEST_MIGRATOR_PASSWORD }}@localhost:5432/atlas_test
           ATLAS_DB_APP_ROLE: atlas_test_app
-          ATLAS_REDIS_URL: redis://localhost/11
+          ATLAS_REDIS_URL: redis://localhost:6379/11
           ATLAS_REDIS_KEY_PREFIX: "atlas:test:ci:"
           ATLAS_EXPECT_PASSWORD_AUTH: "true"
         run: uv run pytest -m integration --no-cov -ra
+      - name: No Atlas test keys remain in the job's Redis (read-only)
+        env:
+          ATLAS_ENV: test
+          ATLAS_ENV_FILE: /nonexistent
+          ATLAS_DATABASE_URL: postgresql+psycopg://atlas_test_app:${{ env.ATLAS_TEST_APP_PASSWORD }}@localhost:5432/atlas_test
+          ATLAS_MIGRATION_DATABASE_URL: postgresql+psycopg://atlas_test_migrator:${{ env.ATLAS_TEST_MIGRATOR_PASSWORD }}@localhost:5432/atlas_test
+          ATLAS_DB_APP_ROLE: atlas_test_app
+          ATLAS_REDIS_URL: redis://localhost:6379/11
+          ATLAS_REDIS_KEY_PREFIX: "atlas:test:ci:"
+        run: |
+          uv run python scripts/redis_keys.py --db 11 --pattern 'atlas:test:*' | tee build-redis-keys.txt
+          grep -q ": 0 keys match" build-redis-keys.txt

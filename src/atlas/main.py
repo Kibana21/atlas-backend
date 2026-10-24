@@ -23,6 +23,7 @@ from atlas.core.logging import configure_logging
 from atlas.core.security_headers import SecurityHeadersMiddleware
 from atlas.core.settings import Settings, get_settings
 from atlas.persistence.db import Database, DatabaseProbe
+from atlas.persistence.redis import RedisProbe, create_redis
 from atlas.version import contract_version
 
 API_PREFIX = "/api/v1"
@@ -38,15 +39,17 @@ def build_api_router() -> APIRouter:
     return router
 
 
-def create_app(settings: Settings, database: DatabaseProbe | None = None) -> FastAPI:
-    """Build the app. ``database`` defaults to the runtime-role engine (connects lazily)."""
+def create_app(settings: Settings, database: DatabaseProbe | None = None, redis: RedisProbe | None = None) -> FastAPI:
+    """Build the app. Defaults: runtime-role engine and Atlas Redis client (both connect lazily)."""
     configure_logging(settings.env.value, settings.log_level)
     probe: DatabaseProbe = database if database is not None else Database(settings.database_url)
+    redis_probe: RedisProbe = redis if redis is not None else create_redis(settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         await probe.dispose()
+        await redis_probe.close()
 
     app = FastAPI(
         title="Atlas API",
@@ -58,6 +61,7 @@ def create_app(settings: Settings, database: DatabaseProbe | None = None) -> Fas
     )
     app.state.settings = settings
     app.state.database = probe
+    app.state.redis = redis_probe
     app.include_router(build_api_router())
     register_error_handlers(app)
     install_openapi(app)
