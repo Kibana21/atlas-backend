@@ -25,12 +25,16 @@ REDIS="redis:7.4.9@sha256:a8f08480e1f88f2647fed492d1178c06abb0d0c1fbf02c682a61e2
 RUN="atlas-imgcheck-$$"
 WORK="$(mktemp -d)"
 chmod 700 "$WORK"
+# Trivy runs as the invoking user, so its cache and reports stay removable (no root-owned files).
+TRIVY_RUN=(-v "$WORK/scan:/scan" -v "$WORK/cache:/cache" --user "$(id -u):$(id -g)" -e HOME=/tmp "$TRIVY" --cache-dir /cache)
 HARDENED=(--read-only --cap-drop=ALL --security-opt=no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=16m)
 
 cleanup() {
+  local status=$?
   docker rm -f "${RUN}-api" "${RUN}-worker" "${RUN}-pg" "${RUN}-redis" >/dev/null 2>&1 || true
   docker network rm "${RUN}-net" >/dev/null 2>&1 || true
-  rm -rf "$WORK"
+  rm -rf "$WORK" 2>/dev/null || echo "warning: could not remove $WORK" >&2
+  exit "$status"  # the verification result, never the cleanup's
 }
 trap cleanup EXIT
 step() { printf '\n== %s\n' "$*"; }
@@ -50,7 +54,7 @@ mkdir -p "$WORK/scan" "$WORK/cache"
 cp Dockerfile "$WORK/scan/Dockerfile"
 for target in api worker; do
   docker save "atlas-${target}:${TAG}" -o "$WORK/scan/${target}.tar"
-  docker run --rm -v "$WORK/scan:/scan" -v "$WORK/cache:/root/.cache/trivy" "$TRIVY" image --quiet \
+  docker run --rm "${TRIVY_RUN[@]}" image --quiet \
     --input "/scan/${target}.tar" --scanners vuln,secret --severity HIGH,CRITICAL --format json \
     --output "/scan/${target}.json"
   python3 - "$WORK/scan/${target}.json" "$target" <<'PY'
@@ -72,7 +76,7 @@ sys.exit(1 if fixable or app or secrets else 0)
 PY
   rm -f "$WORK/scan/${target}.tar"
 done
-docker run --rm -v "$WORK/scan:/scan" -v "$WORK/cache:/root/.cache/trivy" "$TRIVY" config --quiet \
+docker run --rm "${TRIVY_RUN[@]}" config --quiet \
   --severity HIGH,CRITICAL --exit-code 1 /scan/Dockerfile && echo "trivy config: no HIGH/CRITICAL misconfiguration"
 
 step "static image checks"
