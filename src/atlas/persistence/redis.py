@@ -10,7 +10,11 @@ talks to Redis, and it exposes only bounded, prefix-scoped operations:
   DB swapping); deletion is by exact key only, and scans are limited to the Atlas prefix with a hard
   result cap;
 * every command has a short socket timeout, and failures surface as :class:`RedisUnavailable`
-  without the URL, host or driver message.
+  without the URL, host or driver message;
+* a pooled connection that died while idle (for example, Redis restarted or a network blip) is
+  replaced **once** on a connection error, inside the same wall-clock budget, so the first command
+  after recovery does not report a false failure (A001-DEF-01). This is connection-level resilience,
+  not a task retry (DEC-046): an unreachable Redis still fails within the budget.
 """
 
 from __future__ import annotations
@@ -20,6 +24,9 @@ import re
 from typing import Any, Protocol
 
 from redis.asyncio import Redis
+from redis.asyncio.retry import Retry
+from redis.backoff import NoBackoff
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from atlas.core.logging import get_logger
 from atlas.core.settings import Settings, redis_db
@@ -27,6 +34,7 @@ from atlas.core.settings import Settings, redis_db
 log = get_logger("atlas.redis")
 
 PROBE_TIMEOUT_SECONDS = 1.0
+RECONNECT_ATTEMPTS = 1  # replace a stale pooled connection once; the asyncio timeout still bounds the call
 MAX_TTL_SECONDS = 3600
 SCAN_LIMIT = 1000
 _KEY_PART = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
@@ -68,6 +76,7 @@ class AtlasRedis:
             socket_connect_timeout=timeout,
             decode_responses=True,
             client_name="atlas",
+            retry=Retry(NoBackoff(), RECONNECT_ATTEMPTS, supported_errors=(RedisConnectionError,)),
         )
 
     def key(self, name: str) -> str:

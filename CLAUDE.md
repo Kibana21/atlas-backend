@@ -13,7 +13,7 @@ ATLAS-001 Checkpoints 2–5 are merged:
 - CP4 (B-13…B-17): Atlas-scoped Redis client; `/health/ready` (database + Redis), so the full contract conforms and `contract-pending.yaml` is empty; Taskiq broker, `diagnostics.ping`, worker round trip, Redis safety check, `make worker`/`worker-smoke`; CI Redis service.
 - CP5 (B-18…B-25): contract drills and response-body validation against the pinned contract (`make contract`); `api`/`worker` Dockerfile (non-root, digest-pinned, Debian libpq); CI `images` job and dedicated secret scan; full README.
 
-The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). Next is CP6 (atlas-frontend), which needs **owner authorization**. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/ATLAS-001-engineering-foundation/evidence.md`.
+The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). **ATLAS-001 is Accepted** (owner, 24 Oct 2026; release `v0.1.0` = `585f3f5`). ATLAS-002 (Canonical Graph Foundation) is approved in principle: CP0 fixes A001-DEF-01 (Redis readiness after an outage); **no canonical graph code before the owner confirms the CP1 decisions**. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/`.
 
 ## Commands
 
@@ -73,7 +73,7 @@ CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`
   - `.env*` files are untracked, except the `*.example` templates, which hold placeholders only.
   - Review the staged diff before every push.
 - **Credentials:** never print credentials in logs, commands or reports, and never forward `Authorization` headers to redirected storage or third-party hosts.
-- **Evidence:** never claim tests or CI passed without the actual run, and never weaken tests, coverage or checks to get a pass. ATLAS-001 is not Accepted before G7.
+- **Evidence:** never claim tests or CI passed without the actual run, and never weaken tests, coverage or checks to get a pass. Each work item is Accepted only at its final gate, by the owner.
 
 ## Stack (§0, ATLAS-001 approved)
 
