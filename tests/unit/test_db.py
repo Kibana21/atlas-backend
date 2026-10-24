@@ -12,7 +12,7 @@ import pytest
 import atlas.persistence.db as db
 
 pytestmark = pytest.mark.unit
-URL = "postgresql+psycopg://atlas_test_app:secret@localhost:5432/atlas_test"
+URL = "postgresql+psycopg://atlas_test_app:x@localhost:5432/atlas_test"
 
 
 class _Result:
