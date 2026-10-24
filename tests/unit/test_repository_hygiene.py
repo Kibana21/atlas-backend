@@ -36,9 +36,11 @@ def test_no_secret_files_tracked() -> None:
 
 def test_no_secret_patterns_in_tracked_files() -> None:
     hits = []
+    this_file = Path(__file__).resolve()
     for name in _tracked():
         path = ROOT / name
-        if path.suffix in {".lock"} or not path.is_file():
+        # Lockfiles hold hashes; this file defines the patterns and would match its own source.
+        if path.suffix in {".lock"} or not path.is_file() or path.resolve() == this_file:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         hits += [f"{name}: {kind}" for kind, rx in SECRET_PATTERNS.items() if rx.search(text)]
