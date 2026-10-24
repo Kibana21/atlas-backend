@@ -1,5 +1,6 @@
-# atlas-backend CI (ATLAS-001 B-28; amendment A5). No shared infrastructure: this workflow never
-# connects to the owner's local PostgreSQL or Redis and declares no service containers.
+# atlas-backend CI (ATLAS-001 B-28; amendment A5; CP3 `integration`). No shared infrastructure: this
+# workflow never connects to the owner's local PostgreSQL or Redis. The `integration` job uses only its
+# own isolated, digest-pinned postgres:15 service with password authentication (FR-39).
 # Hardening (ci-access.md §5, Mode A): permissions {} with read-only jobs; actions pinned by full
 # commit SHA; validation images digest-pinned via the pinned atlas-specs tools; no secrets; the
 # privileged PR-target trigger is never used. Every required job runs on pull_request and on main.
@@ -98,3 +99,84 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: make security
+
+  integration:
+    # CP3 (B-09..B-12) with the database parts of B-22/B-23 brought forward; Redis joins in CP4.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:15.19@sha256:baa22e6286bf832cb147b8bb5aa9d8bc999846d69c21d11bf63f58fbeed1fa48
+        env:
+          # Bootstrap superuser of this ephemeral, job-local container only (not a secret of any
+          # shared system). Atlas role passwords are random per run and masked.
+          POSTGRES_PASSWORD: ci-ephemeral-bootstrap
+          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+          POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --locale=C --encoding=UTF8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read pinned atlas-specs commit
+        id: lock
+        run: echo "sha=$(awk -F'"' '/^specs_commit:/{print $2}' specs.lock)" >> "$GITHUB_OUTPUT"
+      - name: Checkout atlas-specs at the pinned commit (public, read-only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Kibana21/atlas-specs
+          ref: ${{ steps.lock.outputs.sha }}
+          path: .deps/atlas-specs
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked
+      - name: Bootstrap SQL equals the approved proposal at the pinned specs commit (+ CI-ONLY block)
+        run: >-
+          uv run python scripts/db/check_bootstrap.py scripts/db/bootstrap.sql
+          .deps/atlas-specs/features/ATLAS-001-engineering-foundation/proposals/postgres-local-setup.sql
+      - name: Create the four Atlas roles and databases (random per-run passwords, masked)
+        env:
+          PGPASSWORD: ci-ephemeral-bootstrap
+          CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          for var in ATLAS_MIGRATOR_PASSWORD ATLAS_APP_PASSWORD ATLAS_TEST_MIGRATOR_PASSWORD ATLAS_TEST_APP_PASSWORD; do
+            value="$(openssl rand -hex 24)"
+            echo "::add-mask::${value}"
+            echo "${var}=${value}" >> "$GITHUB_ENV"
+            export "${var}=${value}"
+          done
+          docker exec -i -e PGPASSWORD -e ATLAS_MIGRATOR_PASSWORD -e ATLAS_APP_PASSWORD \
+            -e ATLAS_TEST_MIGRATOR_PASSWORD -e ATLAS_TEST_APP_PASSWORD "$CONTAINER" \
+            psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - < scripts/db/bootstrap.sql
+      - name: Migrate atlas_db as atlas_migrator (B-10)
+        env:
+          ATLAS_ENV: local
+          ATLAS_DATABASE_URL: postgresql+psycopg://atlas_app:${{ env.ATLAS_APP_PASSWORD }}@localhost:5432/atlas_db
+          ATLAS_MIGRATION_DATABASE_URL: postgresql+psycopg://atlas_migrator:${{ env.ATLAS_MIGRATOR_PASSWORD }}@localhost:5432/atlas_db
+          ATLAS_DB_APP_ROLE: atlas_app
+          ATLAS_REDIS_URL: redis://localhost/10
+          ATLAS_REDIS_KEY_PREFIX: "atlas:local:"
+        run: |
+          uv run alembic upgrade head
+          uv run alembic current | tee build-alembic-current.txt
+          grep -q '^0001_baseline (head)$' build-alembic-current.txt
+      - name: Integration tests on atlas_test, including ci_auth (B-09, B-11, B-12, FR-39)
+        env:
+          ATLAS_ENV: test
+          ATLAS_DATABASE_URL: postgresql+psycopg://atlas_test_app:${{ env.ATLAS_TEST_APP_PASSWORD }}@localhost:5432/atlas_test
+          ATLAS_MIGRATION_DATABASE_URL: postgresql+psycopg://atlas_test_migrator:${{ env.ATLAS_TEST_MIGRATOR_PASSWORD }}@localhost:5432/atlas_test
+          ATLAS_DB_APP_ROLE: atlas_test_app
+          ATLAS_REDIS_URL: redis://localhost/11
+          ATLAS_REDIS_KEY_PREFIX: "atlas:test:ci:"
+          ATLAS_EXPECT_PASSWORD_AUTH: "true"
+        run: uv run pytest -m integration --no-cov -ra

@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,11 +56,19 @@ def test_env_examples_hold_placeholders_only() -> None:
 
 
 def test_workflows_never_use_privileged_triggers_or_local_services() -> None:
+    """CI never reaches the owner's services: a job may use localhost:5432 only for its own service."""
     for wf in (ROOT / ".github" / "workflows").glob("*.yml"):
         text = wf.read_text()
         assert "pull_request_target" not in text
-        assert "localhost:5432" not in text
-        assert "localhost:6379" not in text
-        assert "services:" not in text  # CP2: no shared or containerised infrastructure in CI
+        assert "localhost:6379" not in text  # no Redis in CI until CP4 adds an isolated service
+        for name, job in yaml.safe_load(text)["jobs"].items():
+            services = job.get("services") or {}
+            assert set(services) <= {"postgres"}, f"{wf.name}/{name}: unexpected services {sorted(services)}"
+            for service in services.values():
+                assert re.fullmatch(r"postgres:15(\.\d+)?@sha256:[0-9a-f]{64}", service["image"]), service["image"]
+                assert service["env"]["POSTGRES_HOST_AUTH_METHOD"] == "scram-sha-256"  # FR-39
+                assert "--auth-local=scram-sha-256" in service["env"]["POSTGRES_INITDB_ARGS"]
+            if "localhost:5432" in yaml.safe_dump(job):
+                assert "postgres" in services, f"{wf.name}/{name}: localhost database without its own service"
         for uses in re.findall(r"uses:\s*(\S+)", text):
             assert re.search(r"@[0-9a-f]{40}$", uses), f"{wf.name}: action not pinned by SHA: {uses}"
