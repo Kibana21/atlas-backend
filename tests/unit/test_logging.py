@@ -94,3 +94,36 @@ def test_exception_traceback_is_kept_but_scrubbed() -> None:
     record = json.loads(stream.getvalue())
     assert "Traceback" in record["exception"]
     assert "hunter2" not in stream.getvalue()
+
+
+def test_stdlib_records_and_library_tracebacks_are_redacted() -> None:
+    import logging
+
+    from atlas.core.logging import RedactingFilter, install_stdlib_redaction
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.addFilter(RedactingFilter())
+    lib = logging.getLogger("taskiq.receiver.test")
+    lib.addHandler(handler)
+    try:
+        try:
+            raise RuntimeError("connect redis://atlas:hunter2@host:6379/11 failed, password=hunter2")
+        except RuntimeError:
+            lib.error("Exception found while executing %s", "token abcdefgh12345678", exc_info=True)
+    finally:
+        lib.removeHandler(handler)
+    text = stream.getvalue()
+    assert "hunter2" not in text
+    assert "abcdefgh12345678" not in text
+    assert "RuntimeError" in text  # the traceback itself is kept
+    root = logging.getLogger()
+    before = list(root.handlers)
+    install_stdlib_redaction()
+    install_stdlib_redaction()  # idempotent
+    assert all(sum(isinstance(f, RedactingFilter) for f in h.filters) == 1 for h in root.handlers)
+    for h in root.handlers:
+        if h not in before:
+            root.removeHandler(h)
+        else:
+            h.filters = [f for f in h.filters if not isinstance(f, RedactingFilter)]

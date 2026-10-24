@@ -65,6 +65,28 @@ def configure_logging(environment: str, level: str = "INFO", stream: TextIO | No
     )
 
 
+class RedactingFilter(logging.Filter):
+    """Apply the structured-log redaction to stdlib records, including library tracebacks."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = _scrub(record.getMessage())
+        record.args = ()
+        if record.exc_info:
+            record.exc_text = _scrub(logging.Formatter().formatException(record.exc_info))
+            record.exc_info = None
+        return True
+
+
+def install_stdlib_redaction() -> None:
+    """Redact everything third-party libraries log through stdlib (e.g. taskiq's receiver)."""
+    root = logging.getLogger()
+    if not root.handlers:
+        root.addHandler(logging.StreamHandler())
+    for handler in root.handlers:
+        if not any(isinstance(f, RedactingFilter) for f in handler.filters):
+            handler.addFilter(RedactingFilter())
+
+
 def get_logger(name: str) -> structlog.typing.FilteringBoundLogger:
     logger: structlog.typing.FilteringBoundLogger = structlog.get_logger(name)
     return logger

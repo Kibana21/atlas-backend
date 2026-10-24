@@ -5,7 +5,7 @@ UV := uv run --quiet --locked
 # Spec default 8000; override when another local service already uses it (e.g. `make api API_PORT=8100`).
 API_PORT ?= 8000
 
-.PHONY: setup lock-check lint format-check typecheck test check api migrate integration doctor specs export-openapi contract security
+.PHONY: setup lock-check lint format-check typecheck test check api migrate integration worker worker-smoke doctor specs export-openapi contract security
 
 ## setup: install the locked environment; create local env files from the examples if absent
 setup:
@@ -45,6 +45,14 @@ migrate:
 ## integration: integration tests against the local atlas_test database as the test roles (.env.test)
 integration:
 	ATLAS_ENV_FILE=.env.test $(UV) pytest -m integration --no-cov
+
+## worker: Taskiq worker (one process) on the Atlas queue <prefix>taskiq:queue (settings from .env)
+worker:
+	ATLAS_ENV_FILE=.env $(UV) taskiq worker atlas.workers.entrypoint:broker --workers 1 --max-async-tasks 10 --shutdown-timeout 10 --wait-tasks-timeout 10
+
+## worker-smoke: with `make worker` running, enqueue a ping on DB 10, await the marker, delete it
+worker-smoke:
+	ATLAS_ENV_FILE=.env $(UV) python scripts/worker_smoke.py
 
 ## doctor: read-only preflight of the existing PostgreSQL/Redis (SNAPSHOT=file for an inventory)
 doctor:
