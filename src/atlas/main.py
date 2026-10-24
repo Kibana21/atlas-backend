@@ -12,7 +12,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from atlas.api.openapi import install_openapi
-from atlas.api.routers import health
+from atlas.api.routers import diagnostics, health
 from atlas.api.schemas.common import ErrorEnvelope
 from atlas.core.correlation import HEADER, CorrelationIdMiddleware
 from atlas.core.errors import UnhandledErrorMiddleware, register_error_handlers
@@ -30,6 +30,7 @@ def build_api_router() -> APIRouter:
         responses={500: {"model": ErrorEnvelope, "description": "Unexpected server error."}},
     )
     router.include_router(health.router)
+    router.include_router(diagnostics.router)
     return router
 
 
