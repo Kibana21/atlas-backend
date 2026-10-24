@@ -2,8 +2,10 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 UV := uv run --quiet --locked
+# Spec default 8000; override when another local service already uses it (e.g. `make api API_PORT=8100`).
+API_PORT ?= 8000
 
-.PHONY: setup lock-check lint format-check typecheck test check
+.PHONY: setup lock-check lint format-check typecheck test check api
 
 ## setup: install the locked environment; create local env files from the examples if absent
 setup:
@@ -31,3 +33,7 @@ test:
 ## check: everything CI's static + unit jobs run, without external services
 check: lock-check lint format-check typecheck test
 	@echo "make check: all backend gates passed"
+
+## api: run the API locally with reload on 127.0.0.1:$(API_PORT) (settings from .env)
+api:
+	ATLAS_ENV_FILE=.env $(UV) uvicorn --factory atlas.main:create_app_from_env --reload --host 127.0.0.1 --port $(API_PORT)
