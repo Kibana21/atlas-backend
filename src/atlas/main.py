@@ -8,6 +8,9 @@ interactive docs are limited to local.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,6 +22,7 @@ from atlas.core.errors import UnhandledErrorMiddleware, register_error_handlers
 from atlas.core.logging import configure_logging
 from atlas.core.security_headers import SecurityHeadersMiddleware
 from atlas.core.settings import Settings, get_settings
+from atlas.persistence.db import Database, DatabaseProbe
 from atlas.version import contract_version
 
 API_PREFIX = "/api/v1"
@@ -34,16 +38,26 @@ def build_api_router() -> APIRouter:
     return router
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, database: DatabaseProbe | None = None) -> FastAPI:
+    """Build the app. ``database`` defaults to the runtime-role engine (connects lazily)."""
     configure_logging(settings.env.value, settings.log_level)
+    probe: DatabaseProbe = database if database is not None else Database(settings.database_url)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        await probe.dispose()
+
     app = FastAPI(
         title="Atlas API",
         version=contract_version(),
+        lifespan=lifespan,
         docs_url="/docs" if settings.docs_enabled else None,
         redoc_url=None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,
     )
     app.state.settings = settings
+    app.state.database = probe
     app.include_router(build_api_router())
     register_error_handlers(app)
     install_openapi(app)

@@ -5,5 +5,5 @@ pending_operations:
   - operation_id: getHealthReady
     method: GET
     path: /api/v1/health/ready
-    lands_in: B-09 (CP3)
+    lands_in: B-09 (CP3, database check) + B-13 (CP4, Redis check); entry removed by B-18
     components: [HealthReady, ReadinessChecks]

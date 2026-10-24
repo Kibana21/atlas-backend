@@ -14,6 +14,8 @@ dependencies = [
     "structlog>=26.1.0,<27",
     "psycopg[binary]>=3.3.6,<4",
     "redis>=8.1.0,<9",
+    "sqlalchemy[asyncio]>=2.1.4,<3",
+    "alembic>=1.20.0,<2",
 ]
 
 [dependency-groups]
@@ -48,6 +50,9 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "UP", "B", "S", "C4", "SIM", "RUF", "PT", "N"]
 
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]  # the repo-root alembic/ scripts directory is not a package
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]  # assert is the test idiom
 
@@ -55,7 +60,7 @@ select = ["E", "W", "F", "I", "UP", "B", "S", "C4", "SIM", "RUF", "PT", "N"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["src", "tests", "scripts"]
+files = ["src", "tests", "scripts", "alembic/versions"]
 mypy_path = "src"
 explicit_package_bases = true
 
@@ -71,6 +76,7 @@ addopts = "-ra --strict-markers --strict-config -p no:cacheprovider"
 markers = [
     "unit: fast tests without external services",
     "integration: tests against real PostgreSQL/Redis (CP3+)",
+    "ci_auth: CI-only password-authentication tests (ATLAS_EXPECT_PASSWORD_AUTH=true)",
     "contract: contract conformance and schema tests",
     "security: security-focused tests",
 ]
