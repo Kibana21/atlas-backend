@@ -6,14 +6,12 @@ Independent Git repo (`origin` = github.com/Kibana21/atlas-backend, **public**).
 
 ## Status
 
-ATLAS-001 Checkpoint 2 (B-01…B-08, B-27/B-28) is merged:
+ATLAS-001 Checkpoints 2 and 3 are merged:
 
-- app shell and settings with environment guards;
-- correlation IDs, JSON logging with redaction, the error envelope and security headers;
-- `/api/v1/health/live` and `/api/v1/diagnostics/build`;
-- doctor, contract conformance and CI.
+- CP2 (B-01…B-08, B-27/B-28): app shell and settings with environment guards; correlation IDs, JSON logging with redaction, the error envelope and security headers; `/api/v1/health/live` and `/api/v1/diagnostics/build`; doctor, contract conformance and CI.
+- CP3 (B-09…B-12): runtime-role async engine; `/health/ready` database check (still contract-pending until B-13 adds Redis); Alembic `0001_baseline`; migration and least-privilege integration tests; CI `integration` job on an isolated `postgres:15`.
 
-Next is CP3 (B-09+: readiness, PostgreSQL/Alembic, Redis/Taskiq), which needs **owner authorization** (it also depends on the P-03 role SQL being applied by the owner). Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/ATLAS-001-engineering-foundation/evidence.md`.
+The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). Next is CP4 (B-13+: Redis/Taskiq), which needs **owner authorization**. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/ATLAS-001-engineering-foundation/evidence.md`.
 
 ## Commands
 
@@ -23,18 +21,20 @@ make check              # lock-check, ruff lint + format-check, strict mypy, pyt
 make contract           # extract the pinned atlas-specs (SPECS_DIR ?= ../atlas-specs), export OpenAPI, conformance
 make security           # pip-audit of runtime deps + security/hygiene tests
 make api API_PORT=8100  # dev server on 127.0.0.1; port 8000 is often taken by other local services
+make migrate            # alembic upgrade head on atlas_db as atlas_migrator (.env)
+make integration        # integration tests on atlas_test as the test roles (.env.test)
 make doctor             # read-only preflight of local PostgreSQL/Redis (SNAPSHOT=file for an inventory)
 make specs              # only the pinned-specs extraction + specs.lock validation
 make export-openapi     # build/openapi.json
 ```
 
-CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`, `contract` and `security`. They run on every PR and on push to `main`, and are never skipped. CI **never** connects to local PostgreSQL/Redis. Jobs that need them (CP3+) use isolated CI service containers.
+CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`, `contract`, `security` and `integration`. They run on every PR and on push to `main`, and are never skipped. CI **never** connects to local PostgreSQL/Redis: `integration` uses its own digest-pinned `postgres:15` service with scram authentication, bootstrapped by `scripts/db/bootstrap.sql` (the approved proposal + one CI-only block, drift-checked).
 
 ## Workflow and approval boundaries
 
 - Claude runs the whole workflow.
   1. Feature branch per approved task or checkpoint.
-  2. Run `make check contract security` from a **fresh clone** of the committed branch.
+  2. Run `make check contract security integration` from a **fresh clone** of the committed branch.
   3. Push, then open a PR to `main`.
   4. Wait until every required check reports success.
   5. Review the diff against the acceptance criteria.

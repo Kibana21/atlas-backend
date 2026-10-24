@@ -5,7 +5,7 @@ UV := uv run --quiet --locked
 # Spec default 8000; override when another local service already uses it (e.g. `make api API_PORT=8100`).
 API_PORT ?= 8000
 
-.PHONY: setup lock-check lint format-check typecheck test check api doctor specs export-openapi contract security
+.PHONY: setup lock-check lint format-check typecheck test check api migrate integration doctor specs export-openapi contract security
 
 ## setup: install the locked environment; create local env files from the examples if absent
 setup:
@@ -28,7 +28,7 @@ typecheck:
 
 ## test: unit tests with coverage (fail_under = 85)
 test:
-	$(UV) pytest -m "unit or contract or security" --cov --cov-report=term
+	$(UV) pytest -m "(unit or contract or security) and not integration" --cov --cov-report=term
 
 ## check: everything CI's static + unit jobs run, without external services
 check: lock-check lint format-check typecheck test
@@ -37,6 +37,14 @@ check: lock-check lint format-check typecheck test
 ## api: run the API locally with reload on 127.0.0.1:$(API_PORT) (settings from .env)
 api:
 	ATLAS_ENV_FILE=.env $(UV) uvicorn --factory atlas.main:create_app_from_env --reload --host 127.0.0.1 --port $(API_PORT)
+
+## migrate: Alembic upgrade head on atlas_db as the migration role (settings from .env)
+migrate:
+	ATLAS_ENV_FILE=.env $(UV) alembic upgrade head
+
+## integration: integration tests against the local atlas_test database as the test roles (.env.test)
+integration:
+	ATLAS_ENV_FILE=.env.test $(UV) pytest -m integration --no-cov
 
 ## doctor: read-only preflight of the existing PostgreSQL/Redis (SNAPSHOT=file for an inventory)
 doctor:
@@ -68,4 +76,4 @@ security:
 	@mkdir -p build
 	uv export --quiet --locked --no-dev --no-emit-project --format requirements-txt > build/requirements-runtime.txt
 	$(UV) pip-audit --strict --requirement build/requirements-runtime.txt --disable-pip
-	$(UV) pytest -m security -q --no-cov
+	$(UV) pytest -m "security and not integration" -q --no-cov

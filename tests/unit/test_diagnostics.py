@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from atlas import version
 from atlas.main import create_app
-from tests.conftest import make_settings
+from tests.conftest import FakeDatabase, make_settings
 
 pytestmark = pytest.mark.unit
 SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -83,3 +83,8 @@ def test_contract_version_falls_back_when_unpinned(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(version, "SPECS_LOCK", tmp_path / "absent.lock")
     monkeypatch.setattr(version, "read_specs_lock", lambda path=tmp_path / "absent.lock": None)
     assert version.contract_version() == version.UNPINNED_VERSION
+
+
+def test_reports_the_migration_revision_read_by_the_runtime_role() -> None:
+    app = create_app(make_settings(build_sha=SHA), database=FakeDatabase(revision="0001_baseline"))
+    assert TestClient(app).get("/api/v1/diagnostics/build").json()["db_migration_revision"] == "0001_baseline"

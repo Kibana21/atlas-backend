@@ -13,6 +13,7 @@ from atlas.api.schemas.build import BuildInfo
 from atlas.api.schemas.common import ErrorEnvelope
 from atlas.core.errors import AtlasError, NotFoundError
 from atlas.core.settings import Settings
+from atlas.persistence.db import DatabaseProbe
 from atlas.version import backend_sha, read_specs_lock
 
 router = APIRouter(tags=["diagnostics"])
@@ -26,17 +27,18 @@ router = APIRouter(tags=["diagnostics"])
     response_description="Build provenance of the running backend.",
     responses={404: {"model": ErrorEnvelope, "description": "Diagnostics are disabled in this environment."}},
 )
-def get_diagnostics_build(request: Request) -> BuildInfo:
+async def get_diagnostics_build(request: Request) -> BuildInfo:
     settings: Settings = request.app.state.settings
     if not settings.diagnostics_enabled:
         raise NotFoundError()
     pin = read_specs_lock()
+    database: DatabaseProbe = request.app.state.database
     if pin is None:
         raise AtlasError()  # a build without a valid specs.lock is misconfigured
     return BuildInfo(
         backend_sha=backend_sha(settings.build_sha),
         specs_sha=pin.specs_commit,
         contract_version=pin.contract_version,
-        db_migration_revision=None,  # wired to alembic_version in B-12 (CP3)
+        db_migration_revision=await database.migration_revision(),  # runtime role; None if unreadable
         environment=settings.env.value,
     )

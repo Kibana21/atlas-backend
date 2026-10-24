@@ -1,4 +1,4 @@
-"""Shared test helpers. Unit tests never read .env files or touch external services."""
+"""Shared test helpers. Unit tests never read .env files or touch external services (tests/unit/conftest.py)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from atlas.core.settings import Settings
+from atlas.persistence.db import DatabaseUnavailable
 
 
 def make_settings(**overrides: Any) -> Settings:
@@ -24,16 +25,25 @@ def make_settings(**overrides: Any) -> Settings:
     return Settings(_env_file=None, **values)
 
 
-@pytest.fixture(autouse=True)
-def _no_ambient_atlas_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ambient ATLAS_* variables must never leak into unit tests."""
-    import os
-
-    for key in list(os.environ):
-        if key.startswith("ATLAS_"):
-            monkeypatch.delenv(key)
-
-
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+class FakeDatabase:
+    """In-memory stand-in for atlas.persistence.db.Database (unit tests only)."""
+
+    def __init__(self, *, available: bool = True, revision: str | None = None) -> None:
+        self.available = available
+        self.revision = revision
+        self.disposed = False
+
+    async def ping(self) -> None:
+        if not self.available:
+            raise DatabaseUnavailable
+
+    async def migration_revision(self) -> str | None:
+        return self.revision if self.available else None
+
+    async def dispose(self) -> None:
+        self.disposed = True
