@@ -16,7 +16,10 @@ SECRET_PATTERNS = {
     "github token": re.compile(r"\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}"),
     "private key": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     "slack token": re.compile(r"xox[abprs]-[A-Za-z0-9-]{10,}"),
-    "password in url": re.compile(r"[a-z+]+://[^:/\s]+:(?!change-me@|x@|\[REDACTED\]|hunter2@|pw@|p@)[^@\s]{4,}@"),
+    # Allowed: documented placeholders, and ${VAR} references resolved at run time (never literals).
+    "password in url": re.compile(
+        r"[a-z+]+://[^:/\s]+:(?!change-me@|x@|\[REDACTED\]|hunter2@|pw@|p@|\$\{[A-Za-z_][A-Za-z0-9_]*\}@)[^@\s]{4,}@"
+    ),
 }
 FORBIDDEN_FILES = re.compile(r"(^|/)(\.env|\.env\.test|.*\.pem|.*\.key|id_rsa.*)$")
 
@@ -77,3 +80,17 @@ def test_workflows_never_use_privileged_triggers_or_local_services() -> None:
                 assert "redis" in services, f"{wf.name}/{name}: localhost Redis without its own service"
         for uses in re.findall(r"uses:\s*(\S+)", text):
             assert re.search(r"@[0-9a-f]{40}$", uses), f"{wf.name}: action not pinned by SHA: {uses}"
+
+
+@pytest.mark.parametrize(
+    ("text", "flagged"),
+    [
+        ("postgresql://atlas_app:${APP_PW}@postgres:5432/atlas_db", False),
+        ("postgresql://atlas_app:change-me@localhost/atlas_db", False),
+        ("postgresql://atlas_app:s3cretValue@localhost/atlas_db", True),
+        ("postgresql://atlas_app:${APP_PW}x@localhost/atlas_db", True),
+        ("redis://user:$APP_PW@host/11", True),
+    ],
+)
+def test_password_in_url_rule(text: str, flagged: bool) -> None:
+    assert bool(SECRET_PATTERNS["password in url"].search(text)) is flagged

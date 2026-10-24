@@ -5,7 +5,7 @@ UV := uv run --quiet --locked
 # Spec default 8000; override when another local service already uses it (e.g. `make api API_PORT=8100`).
 API_PORT ?= 8000
 
-.PHONY: setup lock-check lint format-check typecheck test check api migrate integration worker worker-smoke doctor specs export-openapi contract security
+.PHONY: setup lock-check lint format-check typecheck test check api migrate integration worker worker-smoke images secret-scan doctor specs export-openapi contract security
 
 ## setup: install the locked environment; create local env files from the examples if absent
 setup:
@@ -28,7 +28,7 @@ typecheck:
 
 ## test: unit tests with coverage (fail_under = 85)
 test:
-	$(UV) pytest -m "(unit or contract or security) and not integration" --cov --cov-report=term
+	$(UV) pytest -m "(unit or contract or security) and not integration and not pinned_specs" --cov --cov-report=term
 
 ## check: everything CI's static + unit jobs run, without external services
 check: lock-check lint format-check typecheck test
@@ -54,6 +54,17 @@ worker:
 worker-smoke:
 	ATLAS_ENV_FILE=.env $(UV) python scripts/worker_smoke.py
 
+## images: build api/worker images, scan (hadolint, Trivy), verify non-root/contents and a hardened runtime
+images:
+	scripts/images_check.sh
+
+## secret-scan: dedicated secret scan of tracked files (Trivy, digest-pinned; read-only mount)
+TRIVY_IMAGE = aquasec/trivy:0.67.2@sha256:e2b22eac59c02003d8749f5b8d9bd073b62e30fefaef5b7c8371204e0a4b0c08
+secret-scan:
+	@rm -rf build/secret-scan && mkdir -p build/secret-scan
+	git ls-files -z | xargs -0 tar -cf - | tar -xf - -C build/secret-scan
+	docker run --rm -v "$(CURDIR)/build/secret-scan:/repo:ro" $(TRIVY_IMAGE) fs --quiet --scanners secret --exit-code 1 /repo
+
 ## doctor: read-only preflight of the existing PostgreSQL/Redis (SNAPSHOT=file for an inventory)
 doctor:
 	ATLAS_ENV_FILE=.env $(UV) python -m atlas.tools.doctor $(if $(SNAPSHOT),--snapshot $(SNAPSHOT),)
@@ -73,15 +84,16 @@ export-openapi:
 	@mkdir -p build
 	$(UV) python scripts/export_openapi.py build/openapi.json
 
-## contract: conformance of the app against the pinned contract minus contract-pending.yaml
+## contract: structural conformance against the pinned contract, then drills and response-body validation
 contract: specs export-openapi
 	$(UV) python scripts/contract_subset.py build/specs/contracts/openapi/atlas-api.yaml contract-pending.yaml build/contract-compared.json
 	uv run --quiet --locked --project build/specs/tools python build/specs/tools/contract_conformance.py conform \
 		--contract build/contract-compared.json --implementation build/openapi.json
+	$(UV) pytest -m pinned_specs --no-cov -q -ra   # B-19 drills + B-20 response validation (pinned contract)
 
 ## security: dependency vulnerability audit + infrastructure-free security/config tests
 security:
 	@mkdir -p build
 	uv export --quiet --locked --no-dev --no-emit-project --format requirements-txt > build/requirements-runtime.txt
 	$(UV) pip-audit --strict --requirement build/requirements-runtime.txt --disable-pip
-	$(UV) pytest -m "security and not integration" -q --no-cov
+	$(UV) pytest -m "security and not integration and not pinned_specs" -q --no-cov

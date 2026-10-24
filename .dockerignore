@@ -1,0 +1,14 @@
+# Only what the image needs is sent to the build: never env files, credentials, caches or VCS data.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!specs.lock
+!alembic.ini
+!alembic/
+!src/
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+**/.env
+**/.env.*

@@ -6,13 +6,14 @@ Independent Git repo (`origin` = github.com/Kibana21/atlas-backend, **public**).
 
 ## Status
 
-ATLAS-001 Checkpoints 2, 3 and 4 are merged:
+ATLAS-001 Checkpoints 2–5 are merged:
 
 - CP2 (B-01…B-08, B-27/B-28): app shell and settings with environment guards; correlation IDs, JSON logging with redaction, the error envelope and security headers; `/api/v1/health/live` and `/api/v1/diagnostics/build`; doctor, contract conformance and CI.
 - CP3 (B-09…B-12): runtime-role async engine; Alembic `0001_baseline`; migration and least-privilege integration tests; CI `integration` job on an isolated `postgres:15`.
 - CP4 (B-13…B-17): Atlas-scoped Redis client; `/health/ready` (database + Redis), so the full contract conforms and `contract-pending.yaml` is empty; Taskiq broker, `diagnostics.ping`, worker round trip, Redis safety check, `make worker`/`worker-smoke`; CI Redis service.
+- CP5 (B-18…B-25): contract drills and response-body validation against the pinned contract (`make contract`); `api`/`worker` Dockerfile (non-root, digest-pinned, Debian libpq); CI `images` job and dedicated secret scan; full README.
 
-The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). Next is CP5 (B-19+: contract drills, response contract tests, images, README), which needs **owner authorization**. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/ATLAS-001-engineering-foundation/evidence.md`.
+The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). Next is CP6 (atlas-frontend), which needs **owner authorization**. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/ATLAS-001-engineering-foundation/evidence.md`.
 
 ## Commands
 
@@ -26,12 +27,14 @@ make migrate            # alembic upgrade head on atlas_db as atlas_migrator (.e
 make integration        # integration tests on atlas_test as the test roles (.env.test)
 make worker             # Taskiq worker on atlas:local:taskiq:queue (DB 10); SIGTERM/Ctrl+C stops it gracefully
 make worker-smoke       # with make worker running: enqueue ping, await marker, delete it
+make images             # build + scan (hadolint, Trivy) + hardened runtime check of the api/worker images
+make secret-scan        # dedicated Trivy secret scan of tracked files
 make doctor             # read-only preflight of local PostgreSQL/Redis (SNAPSHOT=file for an inventory)
 make specs              # only the pinned-specs extraction + specs.lock validation
 make export-openapi     # build/openapi.json
 ```
 
-CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`, `contract`, `security` and `integration`. They run on every PR and on push to `main`, and are never skipped. CI **never** connects to local PostgreSQL/Redis: `integration` uses its own digest-pinned `postgres:15` (scram authentication) and `redis:7.4` services, bootstrapped by `scripts/db/bootstrap.sql` (the approved proposal + one CI-only block, drift-checked).
+CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`, `contract`, `security`, `integration` and `images`. They run on every PR and on push to `main`, and are never skipped. CI **never** connects to local PostgreSQL/Redis: `integration` uses its own digest-pinned `postgres:15` (scram authentication) and `redis:7.4` services, bootstrapped by `scripts/db/bootstrap.sql` (the approved proposal + one CI-only block, drift-checked).
 
 ## Workflow and approval boundaries
 
