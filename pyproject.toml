@@ -12,7 +12,7 @@ dependencies = [
     "pydantic-settings>=2.15.0,<3",
     "uvicorn>=0.54.0,<0.55",
     "structlog>=26.1.0,<27",
-    "psycopg[binary]>=3.3.6,<4",
+    "psycopg>=3.3.6,<4",  # images use Debian's security-maintained libpq5 (no bundled C libraries)
     "redis>=8.1.0,<9",
     "sqlalchemy[asyncio]>=2.1.4,<3",
     "alembic>=1.20.0,<2",
@@ -23,12 +23,15 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx2>=2.13.1,<3",  # Starlette 1.7 test client (declared in starlette[full])
+    "jsonschema>=4.26.0,<5",  # B-20 response contract tests (same validator as atlas-specs tools)
+    "psycopg-binary>=3.3.6,<4",  # local/CI convenience only; never in images (bundled libs, E-27)
     "mypy>=2.4.0,<3",
     "pip-audit>=2.10.1,<3",
     "pytest>=9.1.1,<10",
     "pytest-cov>=7.1.0,<8",
     "pyyaml>=6.0.3,<7",
     "ruff>=0.17.0,<0.18",
+    "types-jsonschema>=4.26.0.20261006,<5",  # typeshed stubs for strict mypy
     "types-pyyaml>=6.0.12.20260906,<7",  # typeshed stubs for strict mypy
 ]
 
@@ -78,6 +81,7 @@ addopts = "-ra --strict-markers --strict-config -p no:cacheprovider"
 markers = [
     "unit: fast tests without external services",
     "integration: tests against real PostgreSQL/Redis (CP3+)",
+    "pinned_specs: tests against the pinned atlas-specs contract in build/specs (run by make contract)",
     "ci_auth: CI-only password-authentication tests (ATLAS_EXPECT_PASSWORD_AUTH=true)",
     "contract: contract conformance and schema tests",
     "security: security-focused tests",
