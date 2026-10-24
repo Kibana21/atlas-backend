@@ -38,3 +38,49 @@ packages = ["src/atlas"]
 # Supply-chain lag: resolve only releases published before this date (>= 2 weeks before
 # ATLAS-001 CP2). Move forward through reviewed changes only.
 exclude-newer = "2026-10-10T00:00:00Z"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "S", "C4", "SIM", "RUF", "PT", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # assert is the test idiom
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src", "tests", "scripts"]
+mypy_path = "src"
+explicit_package_bases = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers --strict-config -p no:cacheprovider"
+markers = [
+    "unit: fast tests without external services",
+    "integration: tests against real PostgreSQL/Redis (CP3+)",
+    "contract: contract conformance and schema tests",
+    "security: security-focused tests",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["atlas"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

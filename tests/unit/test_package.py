@@ -5,8 +5,15 @@ import importlib
 import pytest
 
 MODULES = [
-    "atlas", "atlas.api", "atlas.core", "atlas.domain", "atlas.connectors", "atlas.workers",
-    "atlas.persistence", "atlas.modules.catalog", "atlas.modules.intelligence",
+    "atlas",
+    "atlas.api",
+    "atlas.core",
+    "atlas.domain",
+    "atlas.connectors",
+    "atlas.workers",
+    "atlas.persistence",
+    "atlas.modules.catalog",
+    "atlas.modules.intelligence",
 ]
 
 
