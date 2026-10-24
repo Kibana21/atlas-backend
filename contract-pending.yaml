@@ -1,0 +1,9 @@
+# Contract operations whose implementation task has not landed yet (ATLAS-001 FR-36, amendment A5).
+# `make contract` removes ONLY these from the compared contract; every other difference fails.
+# Each entry must exist in the pinned contract and name its landing task. Must be empty by Gate G5 (B-18).
+pending_operations:
+  - operation_id: getHealthReady
+    method: GET
+    path: /api/v1/health/ready
+    lands_in: B-09 (CP3)
+    components: [HealthReady, ReadinessChecks]
