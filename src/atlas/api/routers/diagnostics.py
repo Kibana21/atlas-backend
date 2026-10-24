@@ -42,3 +42,8 @@ async def get_diagnostics_build(request: Request) -> BuildInfo:
         db_migration_revision=await database.migration_revision(),  # runtime role; None if unreadable
         environment=settings.env.value,
     )
+
+
+@router.get("/diagnostics/extra", operation_id="getDiagnosticsExtra")  # DRILL: not in contract-v0.1.0
+def get_diagnostics_extra() -> dict[str, str]:
+    return {"drill": "undeclared operation"}
