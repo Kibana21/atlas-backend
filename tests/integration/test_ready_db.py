@@ -25,7 +25,7 @@ def test_ready_with_database(settings: Settings) -> None:
     with TestClient(create_app(settings)) as client:
         r = client.get("/api/v1/health/ready")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "checks": {"database": "ok"}}
+    assert r.json() == {"status": "ok", "checks": {"database": "ok", "redis": "ok"}}
 
 
 def test_closed_port_gives_503_without_host_or_credentials(settings: Settings) -> None:

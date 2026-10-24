@@ -1,25 +1,36 @@
-"""Integration fixtures: real PostgreSQL ``atlas_test`` only, as the two test roles (ATLAS-001 CP3).
+"""Integration fixtures: PostgreSQL ``atlas_test`` (two test roles) and Redis DB 11 (ATLAS-001 CP3/CP4).
 
 Settings come from ``ATLAS_ENV_FILE`` (default ``.env.test``) or, in CI, from ``ATLAS_*`` variables.
-The settings guards (FR-21) refuse anything but ``ATLAS_ENV=test`` on database ``atlas_test``. A
-session guard proves no non-Atlas database or role changed while the tests ran.
+The settings guards (FR-21) refuse anything but ``ATLAS_ENV=test`` on database ``atlas_test`` and
+Redis DB 11. Every session gets its own key prefix ``atlas:test:<run_id>:``.
+
+Session guards prove that nothing outside Atlas changed:
+
+* PostgreSQL: non-Atlas databases, ACLs, roles and role settings are identical before and after;
+* Redis: no key is left under the run prefix, and the key **counts** (``DBSIZE``) of DB 1, DB 10 and
+  DB 11 are unchanged. Keys outside the Atlas prefix are never listed, read or deleted.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import psycopg
 import pytest
+import redis
 from alembic import command
 from alembic.config import Config
 from sqlalchemy.engine import make_url
 
-from atlas.core.settings import TEST_DATABASE, Environment, Settings, database_name
+from atlas.core.ids import uuid7
+from atlas.core.settings import TEST_DATABASE, TEST_REDIS_DB, Environment, Settings, database_name, redis_db
 from atlas.persistence.migrations import SETTINGS_ATTRIBUTE
+from atlas.persistence.redis import create_redis
 
 ROOT = Path(__file__).resolve().parents[2]
 ATLAS_DATABASES = frozenset({"atlas_db", TEST_DATABASE})
@@ -50,7 +61,9 @@ def settings() -> Settings:
     loaded = Settings(_env_file=env_file if os.path.exists(env_file) else None)
     assert loaded.env is Environment.TEST
     assert database_name(loaded.database_url) == database_name(loaded.migration_database_url) == TEST_DATABASE
-    return loaded
+    assert redis_db(loaded.redis_url) == TEST_REDIS_DB
+    run_prefix = f"atlas:test:{uuid7().hex[:16]}:"  # FR-33: per-session prefix
+    return loaded.model_copy(update={"redis_key_prefix": run_prefix})
 
 
 @pytest.fixture(scope="session")
@@ -87,3 +100,55 @@ def _non_atlas_objects_unchanged(settings: Settings) -> Iterator[None]:
     before = _inventory(settings)
     yield
     assert _inventory(settings) == before, "a non-Atlas database, role or role setting changed during the tests"
+
+
+GUARDED_REDIS_DBS = (1, 10, TEST_REDIS_DB)
+
+
+def redis_dbsizes(settings: Settings) -> dict[int, int]:
+    """Key counts of the guarded DBs (DBSIZE only: no key of another application is listed or read)."""
+    sizes = {}
+    for db in GUARDED_REDIS_DBS:
+        url = urlsplit(settings.redis_url)  # explicit db: from_url would let the URL path win over db=
+        client = redis.Redis(host=url.hostname or "localhost", port=url.port or 6379, db=db, socket_timeout=2)
+        try:
+            sizes[db] = int(client.dbsize())
+        finally:
+            client.close()
+    return sizes
+
+
+def run_keys(settings: Settings) -> list[str]:
+    async def scan() -> list[str]:
+        client = create_redis(settings, timeout=2.0)
+        try:
+            return await client.scan_prefix()
+        finally:
+            await client.close()
+
+    return asyncio.run(scan())
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _redis_outside_the_run_unchanged(settings: Settings) -> Iterator[None]:
+    before = redis_dbsizes(settings)
+    yield
+    assert run_keys(settings) == [], "keys left under the run prefix"
+    assert redis_dbsizes(settings) == before, "a Redis key count changed outside this run's own keys"
+
+
+@pytest.fixture
+def key_tracker(settings: Settings) -> Iterator[list[str]]:
+    """Tests append every key they cause to exist; exactly those keys are deleted afterwards."""
+    keys: list[str] = []
+    yield keys
+
+    async def delete() -> None:
+        client = create_redis(settings, timeout=2.0)
+        try:
+            await client.delete_exact(*keys)
+        finally:
+            await client.close()
+
+    if keys:
+        asyncio.run(delete())

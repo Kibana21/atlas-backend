@@ -8,6 +8,7 @@ import pytest
 
 from atlas.core.settings import Settings
 from atlas.persistence.db import DatabaseUnavailable
+from atlas.persistence.redis import RedisUnavailable
 
 
 def make_settings(**overrides: Any) -> Settings:
@@ -47,3 +48,18 @@ class FakeDatabase:
 
     async def dispose(self) -> None:
         self.disposed = True
+
+
+class FakeRedisProbe:
+    """In-memory stand-in for the app's Redis readiness probe (unit tests only)."""
+
+    def __init__(self, *, available: bool = True) -> None:
+        self.available = available
+        self.closed = False
+
+    async def ping(self) -> None:
+        if not self.available:
+            raise RedisUnavailable
+
+    async def close(self) -> None:
+        self.closed = True
