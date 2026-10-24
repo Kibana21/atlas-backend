@@ -99,6 +99,8 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: make security
+      - name: Dedicated secret scan of the repository (Trivy, digest-pinned; B-24)
+        run: make secret-scan
 
   integration:
     # CP3 (B-09..B-12) and CP4 (B-13..B-16): database, Redis readiness and the worker round trip.
@@ -199,3 +201,20 @@ jobs:
         run: |
           uv run python scripts/redis_keys.py --db 11 --pattern 'atlas:test:*' | tee build-redis-keys.txt
           grep -q ": 0 keys match" build-redis-keys.txt
+
+  images:
+    # B-21/B-24: build api + worker, hadolint, Trivy (vulnerabilities, secrets, Dockerfile), non-root and
+    # content checks, then a hardened runtime check on an isolated Docker network with the job's own
+    # postgres/redis containers. Nothing is pushed.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build, scan and verify images
+        env:
+          ATLAS_BUILD_SHA: ${{ github.sha }}
+        run: scripts/images_check.sh
