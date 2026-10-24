@@ -1,0 +1,40 @@
+[project]
+name = "atlas-backend"
+version = "0.1.0"
+description = "Atlas backend: FastAPI API and Taskiq workers (modular monolith)."
+readme = "README.md"
+requires-python = "==3.12.*"
+# Pinning policy (ATLAS-001 FR-20a, DEC-020): lower bound = verified version; upper bound below the
+# next major (next minor for 0.x); exact versions and hashes in uv.lock.
+dependencies = [
+    "fastapi>=0.143.0,<0.144",
+    "pydantic>=2.14.0,<3",
+    "pydantic-settings>=2.15.0,<3",
+    "uvicorn>=0.54.0,<0.55",
+    "structlog>=26.1.0,<27",
+    "psycopg[binary]>=3.3.6,<4",
+    "redis>=8.1.0,<9",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1,<0.29",
+    "mypy>=2.4.0,<3",
+    "pip-audit>=2.10.1,<3",
+    "pytest>=9.1.1,<10",
+    "pytest-cov>=7.1.0,<8",
+    "pyyaml>=6.0.3,<7",
+    "ruff>=0.17.0,<0.18",
+]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/atlas"]
+
+[tool.uv]
+# Supply-chain lag: resolve only releases published before this date (>= 2 weeks before
+# ATLAS-001 CP2). Move forward through reviewed changes only.
+exclude-newer = "2026-10-10T00:00:00Z"
