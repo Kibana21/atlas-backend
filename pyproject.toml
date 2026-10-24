@@ -25,6 +25,7 @@ dev = [
     "pytest-cov>=7.1.0,<8",
     "pyyaml>=6.0.3,<7",
     "ruff>=0.17.0,<0.18",
+    "types-pyyaml>=6.0.12.20260906,<7",  # typeshed stubs for strict mypy
 ]
 
 [build-system]
