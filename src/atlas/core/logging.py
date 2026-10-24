@@ -22,12 +22,17 @@ SECRET_KEY = re.compile(
 )
 URL_CREDENTIALS = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<user>[^:/@\s]+):(?P<password>[^@\s/]+)@", re.I)
 BEARER = re.compile(r"(?i)\b(bearer|token)\s+[A-Za-z0-9._~+/=-]{8,}")
+KEY_VALUE = re.compile(
+    r"(?i)\b(?P<key>[a-z0-9_]*(?:pass(?:word|wd)?|secret|token|api[_-]?key|authorization|credential|private[_-]?key)[a-z0-9_]*)"
+    r"(?P<sep>\s*[=:]\s*)(?P<quote>['\"]?)(?P<value>[^\s,;&'\"]+)(?P=quote)"
+)
 
 
 def _scrub(value: Any) -> Any:
     if isinstance(value, str):
         value = URL_CREDENTIALS.sub(lambda m: f"{m['scheme']}{m['user']}:{REDACTED}@", value)
-        return BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", value)
+        value = BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", value)
+        return KEY_VALUE.sub(lambda m: f"{m['key']}{m['sep']}{m['quote']}{REDACTED}{m['quote']}", value)
     if isinstance(value, MutableMapping):
         return {k: (REDACTED if isinstance(k, str) and SECRET_KEY.search(k) else _scrub(v)) for k, v in value.items()}
     if isinstance(value, (list, tuple)):

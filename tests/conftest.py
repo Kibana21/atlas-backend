@@ -32,3 +32,8 @@ def _no_ambient_atlas_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in list(os.environ):
         if key.startswith("ATLAS_"):
             monkeypatch.delenv(key)
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"

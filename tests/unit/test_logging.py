@@ -66,3 +66,31 @@ def test_level_filtering() -> None:
     configure_logging("test", level="WARNING", stream=stream)
     get_logger("t").info("hidden")
     assert stream.getvalue() == ""
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "connect failed secret=hunter2 retry",
+        "password: hunter2",
+        "DB_PASSWORD=hunter2;x=1",
+        "api_key='hunter2'",
+        "token=hunter2&a=b",
+    ],
+)
+def test_secret_key_value_pairs_inside_text_redacted(text: str) -> None:
+    out = _emit(message=text)
+    assert "hunter2" not in json.dumps(out)
+    assert "[REDACTED]" in str(out["message"])
+
+
+def test_exception_traceback_is_kept_but_scrubbed() -> None:
+    stream = io.StringIO()
+    configure_logging("test", stream=stream)
+    try:
+        raise RuntimeError("login failed for user=atlas password=hunter2")
+    except RuntimeError as exc:
+        get_logger("t").error("boom", exc_info=exc)
+    record = json.loads(stream.getvalue())
+    assert "Traceback" in record["exception"]
+    assert "hunter2" not in stream.getvalue()
