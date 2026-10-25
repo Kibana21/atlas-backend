@@ -108,6 +108,7 @@ def validate(ds: Dataset, taxes: dict[str, Taxonomy], scope: dict[str, set[int]]
     _identities(ds, ix, sc, taxes, f)
     _entities(ds, ix, sc, taxes, f)
     _relationships(ds, ix, sc, taxes, f)
+    _retyped_endpoints(ix, sc, taxes, f)
     _per_revision(ds, ix, sc, f)
     _change_sets(ds, ix, sc, taxes, f)
     _trust(ds, ix, sc, taxes, f)
@@ -401,6 +402,16 @@ def _retype_rule(ix: Index, taxes: dict[str, Taxonomy], eid: str, a: Row, b: Row
     tax = taxes.get(b["taxonomy_version"])
     if tax is None or b["type_key"] not in tax.types:
         return
+    if cs and cs["kind"] == "revert":  # only back to the version before the reverted revision (ADR-0008 §7)
+        if not _restores(ix.ev_versions[eid], b, cs["reverts_revision"]):
+            f.append(
+                Finding(
+                    "D-10",
+                    DOMAIN,
+                    f"entity {eid}: a revert may only re-type back to the version before r{cs['reverts_revision']}",
+                )
+            )
+        return
     automatic = is_automatic_retype(tax, a, b)
     if not automatic and cs and cs["kind"] not in ("steward_edit", "migration"):
         f.append(
@@ -412,6 +423,14 @@ def _retype_rule(ix: Index, taxes: dict[str, Taxonomy], eid: str, a: Row, b: Row
         )
     if cs and cs["kind"] == "migration" and not automatic:
         f.append(Finding("D-10", DOMAIN, f"entity {eid}: a migration may only apply automatic re-typing"))
+
+
+def _restores(versions: list[Row], v: Row, target: int) -> bool:
+    """``v``, written by a revert of ``target``, equals the version valid before it, taxonomy version included."""
+    before = next((x for x in versions if valid_at(x, target - 1)), None)
+    return (
+        before is not None and _content(before) == _content(v) and before["taxonomy_version"] == v["taxonomy_version"]
+    )
 
 
 def _arm_key(ix: Index, eid: str, rev: int) -> str | None:
@@ -465,6 +484,33 @@ def _relationships(ds: Dataset, ix: Index, sc: Scope, taxes: dict[str, Taxonomy]
             pk, ck = _arm_key(ix, r["from_id"], rev), _arm_key(ix, r["to_id"], rev)
             if pk and ck and not ck.startswith(pk + "/"):
                 f.append(Finding("D-06", DOMAIN, f"{lbl}: the child's ARM ID is not inside the parent's"))
+
+
+def _retyped_endpoints(ix: Index, sc: Scope, taxes: dict[str, Taxonomy], f: list[Finding]) -> None:
+    """ADR-0008 §5.4: a re-typed endpoint re-validates every relationship still present at that revision (D-04)."""
+    touching: dict[str, list[Row]] = defaultdict(list)
+    for r in ix.rel.values():
+        touching[r["from_id"]].append(r)
+        touching[r["to_id"]].append(r)
+    for eid, vs in ix.ev_versions.items():
+        for a, b in itertools.pairwise(vs):
+            rev = b["revision_from"]
+            if a["type_key"] == b["type_key"] or b["record_state"] != "present" or not sc.has(b["org_id"], rev):
+                continue
+            for r in touching[eid]:
+                v = next((x for x in ix.rv_versions.get(r["id"], []) if valid_at(x, rev)), None)
+                if v is None or v["revision_from"] == rev or v["record_state"] != "present":
+                    continue  # absent, or rewritten in the same change set (validated as its own version)
+                tax = taxes.get(v["taxonomy_version"])
+                fv, tv = ix.entity_at(r["from_id"], rev), ix.entity_at(r["to_id"], rev)
+                if tax is None or fv is None or tv is None:
+                    continue
+                f.extend(
+                    Finding(
+                        "D-04", DOMAIN, f"relationship {r['id']} {r['rel_type']}@{rev} (endpoint {eid} re-typed): {x}"
+                    )
+                    for x in check_pair(tax, r["rel_type"], fv, tv, v["attributes"])
+                )
 
 
 # --------------------------------------------------------------------------- per revision (ADR-0008 §5)
@@ -545,7 +591,10 @@ def _revert_rule(ix: Index, c: Row, f: list[Finding]) -> None:
             if (
                 after is None
                 or (before is None and after["record_state"] != "removed")
-                or (before is not None and _content(before) != _content(after))
+                or (
+                    before is not None
+                    and (_content(before) != _content(after) or before["taxonomy_version"] != after["taxonomy_version"])
+                )
             ):
                 f.append(
                     Finding("D-14", DOMAIN, f"revert r{rev}: fact {fid} does not equal its state before r{target}")
