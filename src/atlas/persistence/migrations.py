@@ -55,6 +55,11 @@ def run(context: Any) -> None:
     engine = create_engine(settings.migration_database_url, poolclass=NullPool)
     try:
         with engine.connect() as connection:
+            # Every migration names schema ``atlas`` explicitly. With the migrator's default search_path (atlas),
+            # Alembic would reflect atlas as the unnamed default schema and `alembic check` would compare it
+            # against nothing; pg_catalog first makes atlas an ordinary, named schema for the comparison.
+            connection.exec_driver_sql("SET search_path TO pg_catalog")
+            connection.commit()  # end the implicit transaction; the session setting stays, migrations get their own
             context.configure(
                 connection=connection,
                 target_metadata=metadata,

@@ -557,10 +557,11 @@ def publish(
         assert at is not None  # noqa: S101 - now() is never NULL
         base = repository.load(conn, scope)
         base.policy = copy.deepcopy(policy if policy is not None else NO_POLICY)
+        # evidence the draft names, already stored but not referenced by a current assertion, is loaded too:
+        # a resubmitted evidence row is then recognised as unchanged instead of inserted twice
         missing = sorted(
-            {a.evidence_id for a in draft.assertions}
+            ({a.evidence_id for a in draft.assertions} | {e.evidence_id for e in draft.evidence})
             - {e["id"] for e in base.tables["evidence"]}
-            - {e.evidence_id for e in draft.evidence}
         )
         base.tables["evidence"] += repository.evidence_rows(conn, scope, missing)
         plan = _Plan(scope, base, tax, revision, at)

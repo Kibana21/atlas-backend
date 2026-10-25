@@ -74,25 +74,25 @@ def draft_from_graph(**overrides: Any) -> ChangeSetDraft:
         )
         for r in t["relationships"]
     ]
-    return ChangeSetDraft(
-        kind="fixture_load",
-        channel="fixture_cli",
-        source_ref="integration test",
-        reason="synthetic graph",
-        evidence=[
+    fields: dict[str, Any] = {
+        "kind": "fixture_load",
+        "channel": "fixture_cli",
+        "source_ref": "integration test",
+        "reason": "synthetic graph",
+        "evidence": [
             EvidenceInput(e["id"], e["kind"], e["source_ref"], e["method"], e["observed_at"]) for e in t["evidence"]
         ],
-        entities=entities,
-        relationships=relationships,
-        identities=[
+        "entities": entities,
+        "relationships": relationships,
+        "identities": [
             IdentityInput(i["id"], i["entity_id"], i["namespace"], i["original_key"], i["match_method"])
             for i in t["external_identities"]
         ],
-        assertions=[
+        "assertions": [
             AssertionInput(a["id"], a["fact_kind"], a["fact_id"], a["evidence_id"]) for a in t["fact_assertions"]
         ],
-        **overrides,
-    )
+    }
+    return ChangeSetDraft(**{**fields, **overrides})
 
 
 @pytest.fixture
