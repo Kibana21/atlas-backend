@@ -125,7 +125,7 @@ def test_publish_writes_one_change_set_and_a_replay_writes_nothing(
         (scope.org_id, result.revision),
     ).fetchone() or (None, None, None)
     assert created_at is not None
-    assert db_role == settings.db_ingest_role
+    assert db_role == settings.ingestion_role
     assert actor == "atlas.service:fixture-loader"
     web = repository.entity_version(conn, scope, g.WEB)
     assert web is not None
