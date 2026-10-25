@@ -1,6 +1,6 @@
 # atlas-specs pin (DEC-039; contracts/compatibility.md §2). Full SHA only; never a branch or tag.
 specs_repo: "atlas-specs"
-specs_commit: "49372fb245575f0c2972a3ed8139a53dca6acc5b"
+specs_commit: "91755a470bdbcf5a45eaccd8e35ab68753a950fe"
 api_contract: "contracts/openapi/atlas-api.yaml"
 schemas_dir: "contracts/schemas"
 tokens: "design/tokens.json"
