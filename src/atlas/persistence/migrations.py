@@ -52,14 +52,14 @@ def run(context: Any) -> None:
     settings: Settings = config.attributes.get(SETTINGS_ATTRIBUTE) or get_settings()
     config.attributes[APP_ROLE_ATTRIBUTE] = settings.db_app_role
     config.attributes[INGEST_ROLE_ATTRIBUTE] = settings.db_ingest_role
-    engine = create_engine(settings.migration_database_url, poolclass=NullPool)
+    # Every migration names schema ``atlas`` explicitly. With the migrator's role default (search_path = atlas) the
+    # dialect would take atlas as its default schema, and Alembic would compare it as the unnamed schema; setting
+    # search_path for every connection of this engine makes atlas an ordinary named schema for `alembic check`.
+    engine = create_engine(
+        settings.migration_database_url, poolclass=NullPool, connect_args={"options": "-c search_path=pg_catalog"}
+    )
     try:
         with engine.connect() as connection:
-            # Every migration names schema ``atlas`` explicitly. With the migrator's default search_path (atlas),
-            # Alembic would reflect atlas as the unnamed default schema and `alembic check` would compare it
-            # against nothing; pg_catalog first makes atlas an ordinary, named schema for the comparison.
-            connection.exec_driver_sql("SET search_path TO pg_catalog")
-            connection.commit()  # end the implicit transaction; the session setting stays, migrations get their own
             context.configure(
                 connection=connection,
                 target_metadata=metadata,
