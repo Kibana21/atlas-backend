@@ -74,6 +74,9 @@ class EntityInput:
     attributes: dict[str, Any] = field(default_factory=dict)
     verification: dict[str, Any] | None = None
     expected_trust_state: str | None = None
+    taxonomy_version: str | None = (
+        None  # a restored version keeps its recorded one (revert; D-14); default: the publisher's
+    )
 
 
 @dataclass
@@ -87,6 +90,9 @@ class RelationshipInput:
     record_state: str = "present"
     verification: dict[str, Any] | None = None
     expected_trust_state: str | None = None
+    taxonomy_version: str | None = (
+        None  # a restored version keeps its recorded one (revert; D-14); default: the publisher's
+    )
 
 
 @dataclass
@@ -317,6 +323,7 @@ class _Plan:
         current: dict[str, Row],
         *,
         with_trust: bool = False,
+        taxonomy_version: str | None = None,
     ) -> bool:
         """Close the current version and add ``content`` at R, unless nothing changed. True if a version was added."""
         old = current.get(fact_id)
@@ -325,6 +332,8 @@ class _Plan:
         if old is not None:
             if old["revision_from"] == self.rev:  # already rewritten in this change set: replace in place
                 old.update(content)
+                if taxonomy_version:
+                    old["taxonomy_version"] = taxonomy_version
                 return True
             self.close(fixture_table, old)
         row = {
@@ -332,7 +341,7 @@ class _Plan:
             key: fact_id,
             "revision_from": self.rev,
             "revision_to": None,
-            "taxonomy_version": self.tax.version,
+            "taxonomy_version": taxonomy_version or self.tax.version,
         }
         row.setdefault("trust_state", old["trust_state"] if old else "documented")  # set by the trust step
         self.add(fixture_table, row)
@@ -362,7 +371,14 @@ class _Plan:
             if e.entity_id not in self.entity_ids:
                 self.entity_ids.add(e.entity_id)
                 self.add("entities", {"org_id": self.scope.org_id, "id": e.entity_id, "created_revision": self.rev})
-            if self._version("entity_versions", "entity_id", e.entity_id, content, self.current_ev):
+            if self._version(
+                "entity_versions",
+                "entity_id",
+                e.entity_id,
+                content,
+                self.current_ev,
+                taxonomy_version=e.taxonomy_version,
+            ):
                 changed.add(e.entity_id)
         return changed
 
@@ -412,7 +428,14 @@ class _Plan:
                 content.update(
                     {k: old[k] for k in ("environment_id", "cross_environment", "shared_endpoint", "cross_provider")}
                 )
-            if self._version("relationship_versions", "relationship_id", r.relationship_id, content, self.current_rv):
+            if self._version(
+                "relationship_versions",
+                "relationship_id",
+                r.relationship_id,
+                content,
+                self.current_rv,
+                taxonomy_version=r.taxonomy_version,
+            ):
                 changed.add(r.relationship_id)
         return changed
 

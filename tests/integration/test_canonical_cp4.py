@@ -197,6 +197,161 @@ def g_steward() -> publish_module.Actor:
     return publish_module.Actor("human", "oidc", g.STEWARD["key"])
 
 
+def _footprint(conn: psycopg.Connection[Any], scope: OrgScope) -> tuple[int, dict[str, str]]:
+    """The organization's revision and every stored row: equal before and after means nothing was written."""
+    ds = repository.load(conn, scope, history=True)
+    rows = {
+        name: json.dumps(sorted(json.dumps(r, sort_keys=True, default=str) for r in ds.tables[name])) for name in TABLES
+    }
+    return repository.current_revision(conn, scope), rows
+
+
+def _entity_versions(conn: psycopg.Connection[Any], scope: OrgScope, display_name: str) -> list[dict[str, Any]]:
+    ds = repository.load(conn, scope, history=True)
+    found = [v for v in ds.tables["entity_versions"] if v["display_name"] == display_name]
+    return sorted(found, key=lambda v: v["revision_from"])
+
+
+def _reverted_ok(
+    conn: psycopg.Connection[Any], scope: OrgScope, target: int, revision: int, expected: dict[int, Any]
+) -> dict[str, Any]:
+    """The revert is a new revision equal to the state before ``target``; ``target`` itself still reconstructs."""
+    before, original = expected[target - 1], expected[target]
+    assert history.hash_at(conn, scope, revision) == (before["entities"], before["relationships"], before["graph_hash"])
+    assert history.hash_at(conn, scope, target) == (
+        original["entities"],
+        original["relationships"],
+        original["graph_hash"],
+    )
+    assert integrity.revision_findings(conn, scope, revision) == []
+    assert integrity.history_findings(conn, scope) == []
+    return next(c for c in repository.load(conn, scope).tables["change_sets"] if c["revision"] == revision)
+
+
+def test_reverting_a_steward_reclassification_restores_type_parent_and_identities(
+    ingest_tx: psycopg.Connection[Any], settings: Settings
+) -> None:
+    """R6: a steward re-types a neutral data store to azure.sql_database, re-parents it and swaps its identities."""
+    conn = ingest_tx
+    ds, taxes, policy = golden()
+    source = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
+    expected = {
+        e["revision"]: e for e in json.loads((FIXTURE / "expected-as-of.json").read_text()) if e["org_key"] == "default"
+    }
+    scope = repository.resolve_scope(conn, "cp4-golden")
+    history.replay(conn, scope, ds, source, taxes, policy, until=6)
+    result = history.revert(conn, scope, g_steward(), 6, taxes, policy, reason="undo the r6 reclassification")
+    assert result.revision == 7
+    cs = _reverted_ok(conn, scope, 6, 7, expected)
+    assert (cs["kind"], cs["reverts_revision"], cs["channel"], cs["reason"]) == (
+        "revert",
+        6,
+        "api",
+        "undo the r6 reclassification",
+    )
+    assert (cs["actor"]["kind"], cs["actor"]["namespace"], cs["db_role"]) == ("human", "oidc", settings.ingestion_role)
+    v5, v6, v7 = _entity_versions(conn, scope, "sqldb-billing-prod")[-3:]
+    assert (v6["type_key"], v6["revision_from"], v6["revision_to"]) == ("azure.sql_database", 6, 7)  # history kept
+    assert (
+        (v7["type_key"], v7["taxonomy_version"])
+        == (v5["type_key"], v5["taxonomy_version"])
+        == (
+            "infra.data_store",
+            "1.1.0",
+        )
+    )
+    assert {k: x for k, x in v7.items() if k not in ("revision_from", "revision_to")} == {
+        k: x for k, x in v5.items() if k not in ("revision_from", "revision_to")
+    }
+    current = repository.load(conn, scope).tables["external_identities"]
+    bound = {i["namespace"] for i in current if i["entity_id"] == v7["entity_id"]}
+    recorded = {
+        i["namespace"]
+        for i in ds.tables["external_identities"]
+        if i["entity_id"] == v7["entity_id"] and i["revision_from"] <= 5 and (i["revision_to"] or 99) > 5
+    }
+    assert bound == recorded  # the r5 identity bindings are back; the entity ID never changed
+
+
+def test_reverting_a_taxonomy_migration_restores_the_historical_taxonomy_version(
+    ingest_tx: psycopg.Connection[Any],
+) -> None:
+    """R7: a migration re-types infra.resource -> infra.data_store under taxonomy 1.2.0-test.1."""
+    conn = ingest_tx
+    ds, taxes, policy = golden()
+    source = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
+    expected = {
+        e["revision"]: e for e in json.loads((FIXTURE / "expected-as-of.json").read_text()) if e["org_key"] == "default"
+    }
+    scope = repository.resolve_scope(conn, "cp4-golden")
+    history.replay(conn, scope, ds, source, taxes, policy, until=7)
+    result = history.revert(conn, scope, g_steward(), 7, taxes, policy, reason="undo the r7 migration")
+    assert result.revision == 8
+    cs = _reverted_ok(conn, scope, 7, 8, expected)
+    assert (cs["kind"], cs["reverts_revision"]) == ("revert", 7)
+    v6, v7, v8 = _entity_versions(conn, scope, "analytics-warehouse")[-3:]
+    assert (v7["type_key"], v7["taxonomy_version"], v7["revision_to"]) == ("infra.data_store", "1.2.0-test.1", 8)
+    assert (
+        (v8["type_key"], v8["taxonomy_version"])
+        == (v6["type_key"], v6["taxonomy_version"])
+        == (
+            "infra.resource",
+            "1.1.0",
+        )
+    )
+
+
+def test_a_reverted_version_keeps_the_taxonomy_version_it_was_validated_against(
+    ingest_tx: psycopg.Connection[Any],
+) -> None:
+    """Undoing a later edit of the re-typed entity restores its 1.2.0-test.1 version, not a re-stamped copy."""
+    conn = ingest_tx
+    ds, taxes, policy = golden()
+    source = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
+    scope = repository.resolve_scope(conn, "cp4-golden")
+    history.replay(conn, scope, ds, source, taxes, policy)
+    before = _entity_versions(conn, scope, "analytics-warehouse")[-1]
+    assert (before["type_key"], before["taxonomy_version"]) == ("infra.data_store", "1.2.0-test.1")
+    edit = publish_module.ChangeSetDraft("steward_edit", "api", "rename", "steward rename")
+    edit.entities.append(history.entity_input({**before, "display_name": "analytics-warehouse-eu"}))
+    assert publish(conn, scope, g_steward(), edit, taxes, policy).revision == 9
+    result = history.revert(conn, scope, g_steward(), 9, taxes, policy)
+    assert result.revision == 10
+    restored = _entity_versions(conn, scope, "analytics-warehouse")[-1]
+    assert restored["revision_from"] == 10
+    assert {k: x for k, x in restored.items() if k not in ("revision_from", "revision_to")} == {
+        k: x for k, x in before.items() if k not in ("revision_from", "revision_to")
+    }
+    assert history.hash_at(conn, scope, 10) == history.hash_at(conn, scope, 8)
+    assert integrity.history_findings(conn, scope) == []
+
+
+def test_conflicting_reclassification_reverts_are_refused_and_write_nothing(
+    ingest_tx: psycopg.Connection[Any],
+) -> None:
+    """At head, r8 reads from the data store that r7 created by re-typing: undoing r7 would leave a relationship the
+    restored type does not allow (ADR-0008 §5.4). A fact changed again after its revision is a D-14 conflict."""
+    conn = ingest_tx
+    ds, taxes, policy = golden()
+    source = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
+    scope = repository.resolve_scope(conn, "cp4-golden")
+    history.replay(conn, scope, ds, source, taxes, policy)
+    edit = publish_module.ChangeSetDraft("steward_edit", "api", "rename", "steward rename")
+    current = _entity_versions(conn, scope, "sqldb-billing-prod")[-1]
+    edit.entities.append(history.entity_input({**current, "display_name": "sqldb-billing-prod-01"}))
+    assert publish(conn, scope, g_steward(), edit, taxes, policy).revision == 9
+    footprint = _footprint(conn, scope)
+    with pytest.raises(PublishRejected) as dependent:
+        history.revert(conn, scope, g_steward(), 7, taxes, policy)
+    assert dependent.value.rule_ids == {"D-04"}
+    assert _footprint(conn, scope) == footprint
+    with pytest.raises(PublishRejected) as changed_again:  # r6's entity was renamed at r9
+        history.revert(conn, scope, g_steward(), 6, taxes, policy)
+    assert changed_again.value.rule_ids == {"D-14"}
+    assert "sqldb-billing-prod" in str(changed_again.value) or current["entity_id"] in str(changed_again.value)
+    assert _footprint(conn, scope) == footprint
+
+
 # --------------------------------------------------------------------------- import through the planner (AC-CP4-01/02)
 
 

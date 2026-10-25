@@ -131,10 +131,12 @@ def revert_draft(ds: Dataset, org_id: str, target: int, head: int, ids: IdFactor
             prior = next((v for v in versions if v["revision_to"] == target), None)
             current = next(v for v in versions if v["revision_to"] is None)
             restored = {**(prior or current), "record_state": prior["record_state"] if prior else "removed"}
-            if key == "entity_id":
-                draft.entities.append(entity_input(restored))
+            item = entity_input(restored) if key == "entity_id" else relationship_input(rels[fid], restored)
+            item.taxonomy_version = prior["taxonomy_version"] if prior else None  # the recorded one (D-14)
+            if isinstance(item, EntityInput):
+                draft.entities.append(item)
             else:
-                draft.relationships.append(relationship_input(rels[fid], restored))
+                draft.relationships.append(item)
     for a in (a for a in t["fact_assertions"] if a["org_id"] == org_id):
         if a["revision_from"] == target:
             if a["revision_to"] is None:

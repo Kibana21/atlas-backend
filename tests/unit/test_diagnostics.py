@@ -13,7 +13,7 @@ from tests.conftest import FakeDatabase, make_settings
 
 pytestmark = pytest.mark.unit
 SHA = "0123456789abcdef0123456789abcdef01234567"
-PINNED_SPECS = "47a550aa7b0dc1f6af79c7a81234dd522e7a895e"  # specs.lock (ATLAS-002 CP3); contract still 0.1.0
+PINNED_SPECS = "3d4002f11f675a4f7520e22abb1b1c4b10e29be1"  # specs.lock (ATLAS-002 G4); contract still 0.1.0
 
 
 def test_enabled_returns_build_info() -> None:
