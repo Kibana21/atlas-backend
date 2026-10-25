@@ -14,7 +14,7 @@ One change set, one transaction, run as the **ingestion role** (DEC-044 as amend
 6. run the in-database integrity checks for R, then advance the counter. Any failure rolls everything back.
 
 The actor comes from the caller's execution context (the ingestion entry point), never from a payload (§10).
-Reverts (ADR-0008 §7) are CP4 work and are refused here.
+Reverts (ADR-0008 §7) are built by :func:`revert` and published here as ordinary, attributed change sets.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from atlas.domain.canonical import rules
 from atlas.domain.canonical.graph import Dataset, Row, discriminator_of, relationship_flags, sha256_of, valid_at
 from atlas.domain.canonical.identity import NormalizationError, normalize
 from atlas.domain.canonical.taxonomy import Taxonomy
-from atlas.domain.canonical.trust import NO_POLICY, Claim, evaluate
+from atlas.domain.canonical.trust import NO_POLICY, Claim, evaluate, timestamp
 from atlas.persistence.canonical import integrity, repository
 from atlas.persistence.canonical.repository import OrgScope
 from atlas.persistence.canonical.rows import FIXTURE_TABLE, format_ts, insert_sql, to_db
@@ -130,6 +130,7 @@ class ChangeSetDraft:
     reason: str
     input_hash: str | None = None
     change_reference: str | None = None
+    reverts_revision: int | None = None  # kind "revert" only; build reverts with :func:`revert`
     evidence: list[EvidenceInput] = field(default_factory=list)
     entities: list[EntityInput] = field(default_factory=list)
     relationships: list[RelationshipInput] = field(default_factory=list)
@@ -183,6 +184,9 @@ class _Plan:
         self.current_ev = {v["entity_id"]: v for v in t["entity_versions"] if v["revision_to"] is None}
         self.current_rv = {v["relationship_id"]: v for v in t["relationship_versions"] if v["revision_to"] is None}
         self.evidence = {e["id"]: e for e in t["evidence"]}
+        self.asserts_by_fact: dict[str, list[Row]] = {}
+        for a in t["fact_assertions"]:
+            self.asserts_by_fact.setdefault(a["fact_id"], []).append(a)
 
     # ---- helpers
     def reject(self, rule: str, message: str) -> None:
@@ -191,6 +195,8 @@ class _Plan:
     def add(self, fixture_table: str, row: Row) -> None:
         self.ds.tables[fixture_table].append(row)
         self.new.setdefault(fixture_table, []).append(row)
+        if fixture_table == "fact_assertions":
+            self.asserts_by_fact.setdefault(row["fact_id"], []).append(row)
 
     def close(self, fixture_table: str, row: Row) -> None:
         row["revision_to"] = self.rev
@@ -411,7 +417,16 @@ class _Plan:
         return changed
 
     # ---- derived fields
-    def derive(self, entities: set[str], relationships: set[str], asserted: set[str], expected: dict[str, str]) -> None:
+    def derive(
+        self,
+        entities: set[str],
+        relationships: set[str],
+        asserted: set[str],
+        expected: dict[str, str],
+        *,
+        recompute_all: bool = False,
+    ) -> None:
+        """Flags for relationships touching changed entities, then trust for every touched fact (or every fact)."""
         touched_rel = set(relationships)
         for rid, r in self.relationships.items():
             if r["from_id"] in entities or r["to_id"] in entities:
@@ -425,14 +440,15 @@ class _Plan:
             flags = relationship_flags(fv, tv)
             if any(v[k] != val for k, val in flags.items()):
                 self._version("relationship_versions", "relationship_id", rid, {**_strip(v), **flags}, self.current_rv)
-        ix = rules.Index(self.ds)
+        if recompute_all:  # time-driven re-evaluation of every current fact (trust-function.md, recomputation)
+            entities, touched_rel = set(self.current_ev), set(self.current_rv)
         facts = [("entity", fid) for fid in sorted(entities | (asserted & set(self.current_ev)))] + [
             ("relationship", fid) for fid in sorted(touched_rel | (asserted & set(self.current_rv)))
         ]
         for kind, fid in facts:
-            self._trust(ix, kind, fid, expected.get(fid))
+            self._trust(kind, fid, expected.get(fid))
 
-    def _trust(self, ix: rules.Index, kind: str, fid: str, expected: str | None) -> None:
+    def _trust(self, kind: str, fid: str, expected: str | None) -> None:
         current = self.current_ev if kind == "entity" else self.current_rv
         table, key = (
             ("entity_versions", "entity_id") if kind == "entity" else ("relationship_versions", "relationship_id")
@@ -443,8 +459,7 @@ class _Plan:
         if v["record_state"] != "present":
             self._tombstone_trust(table, key, fid, v, current)
             return
-        probe = {**v, "revision_from": self.rev, "revision_to": None}
-        claim = rules.claim_of(ix, self.tax, kind, probe)
+        claim = self._claim(kind, fid, v)
         if claim is None:
             return  # unknown type or missing endpoint: the domain rules report it
         assertions = [
@@ -454,8 +469,8 @@ class _Plan:
                 "observed_at": self.evidence.get(a["evidence_id"], {}).get("observed_at"),
                 "valid_to": self.evidence.get(a["evidence_id"], {}).get("valid_to"),
             }
-            for a in self.ds.tables["fact_assertions"]
-            if a["fact_id"] == fid and valid_at(a, self.rev)
+            for a in self.asserts_by_fact.get(fid, [])
+            if valid_at(a, self.rev)
         ]
         prev = next((p for p in self.closed.get(table, []) if p[key] == fid), None) or (
             v if v["revision_from"] < self.rev else None
@@ -471,12 +486,25 @@ class _Plan:
         if v["trust_state"] != result:
             self._version(table, key, fid, {**_strip(v), "trust_state": result}, current, with_trust=True)
 
+    def _claim(self, kind: str, fid: str, v: Row) -> Claim | None:
+        """The claim as of this change set: endpoints are resolved from the plan's current versions, which include
+        the versions this change set writes (an index built earlier would no longer see them)."""
+        if kind == "entity":
+            return Claim("entity", self.tax.is_physical(v["type_key"]))
+        r = self.relationships[fid]
+        ends = [self.current_ev.get(r["from_id"]), self.current_ev.get(r["to_id"])]
+        rule = self.tax.rels.get(r["rel_type"])
+        if rule is None or ends[0] is None or ends[1] is None:
+            return None
+        physical = any(self.tax.is_physical(e["type_key"]) for e in ends if e is not None)
+        return Claim("relationship", physical, frozenset(rule["allowed_evidence_kinds"]))
+
     def _tombstone_trust(self, table: str, key: str, fid: str, v: Row, current: dict[str, Row]) -> None:
         """A removal or merge records how the removal is known: the label of its ``record_state`` evidence."""
         kinds = {
             a["evidence_kind"]
-            for a in self.ds.tables["fact_assertions"]
-            if a["fact_id"] == fid and a["field_path"] == "record_state" and valid_at(a, self.rev)
+            for a in self.asserts_by_fact.get(fid, [])
+            if a["field_path"] == "record_state" and valid_at(a, self.rev)
         }
         label = next((state for kind, state in TOMBSTONE_TRUST if kind in kinds), None)
         if label is not None and v["trust_state"] != label:
@@ -542,11 +570,23 @@ def publish(
     draft: ChangeSetDraft,
     taxes: dict[str, Taxonomy],
     policy: dict[str, Any] | None = None,
+    *,
+    taxonomy_version: str | None = None,
+    evaluated_at: str | None = None,
+    recompute: bool = False,
 ) -> PublishResult:
-    """Publish ``draft`` as one change set of ``scope``. Raises :class:`PublishRejected` with readable reasons."""
-    tax = rules.base_taxonomy(taxes)
-    if draft.kind == "revert":
-        raise PublishRejected([rules.Finding("D-14", rules.DOMAIN, "reverts are implemented in CP4 (ADR-0008 §7)")])
+    """Publish ``draft`` as one change set of ``scope``. Raises :class:`PublishRejected` with readable reasons.
+
+    ``taxonomy_version`` (default: the approved one) validates and stamps the new rows; it must be loaded in ``taxes``.
+    ``evaluated_at`` replaces the transaction time as the trust function's evaluation time when recorded history is
+    replayed (the fixture loader): the time of the recorded change set, never later than now. ``recompute`` re-evaluates
+    the trust of every current fact (a recompute change set).
+    """
+    tax = taxes[taxonomy_version] if taxonomy_version else rules.base_taxonomy(taxes)
+    if (draft.kind == "revert") != (draft.reverts_revision is not None):
+        raise PublishRejected(
+            [rules.Finding("H-05", rules.HARD, "a revert names the revision it reverts (and only a revert)")]
+        )
     with conn.transaction():
         row = conn.execute(
             "SELECT last, now() FROM atlas.org_revision WHERE org_id = %s FOR UPDATE", (scope.org_id,)
@@ -555,7 +595,11 @@ def publish(
             raise repository.OrganizationNotFound(scope.key)
         revision, at = int(row[0]) + 1, format_ts(row[1])
         assert at is not None  # noqa: S101 - now() is never NULL
-        base = repository.load(conn, scope)
+        if evaluated_at is not None:
+            if timestamp(evaluated_at) > timestamp(at):
+                raise PublishRejected([rules.Finding("H-05", rules.HARD, "evaluated_at is later than the server time")])
+            at = evaluated_at
+        base = repository.load(conn, scope, history=draft.kind == "revert")  # D-14 needs the reverted history
         base.policy = copy.deepcopy(policy if policy is not None else NO_POLICY)
         # evidence the draft names, already stored but not referenced by a current assertion, is loaded too:
         # a resubmitted evidence row is then recognised as unchanged instead of inserted twice
@@ -572,7 +616,7 @@ def publish(
         asserted = plan.assertion_rows(draft.assertions, draft.close_assertions)
         expected = {e.entity_id: e.expected_trust_state for e in draft.entities if e.expected_trust_state}
         expected |= {r.relationship_id: r.expected_trust_state for r in draft.relationships if r.expected_trust_state}
-        plan.derive(changed_entities, changed_relationships, asserted, expected)
+        plan.derive(changed_entities, changed_relationships, asserted, expected, recompute_all=recompute)
         if plan.findings:
             raise PublishRejected(plan.findings)
         if plan.empty:
@@ -585,7 +629,7 @@ def publish(
             "actor": {"kind": actor.kind, "namespace": actor.namespace, "key": actor.key, "label": actor.label},
             "source_ref": draft.source_ref,
             "input_hash": draft.input_hash,
-            "reverts_revision": None,
+            "reverts_revision": draft.reverts_revision,
             "reason": draft.reason,
             "change_reference": draft.change_reference,
             "created_at": at,

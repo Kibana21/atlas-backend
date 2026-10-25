@@ -32,6 +32,9 @@ HARD, DOMAIN, ADVISORY = "HARD", "DOMAIN", "ADVISORY"
 SERVICE_CHANNELS = frozenset({"fixture_cli", "import", "connector"})
 HUMAN_KINDS = frozenset({"steward_edit", "merge", "split"})
 REVISION_FIELDS = ("revision_from", "revision_to", "taxonomy_version")
+# D-19 checks a verification when it is recorded or changed; an unchanged record carried into a new version (for
+# example a recomputation that turns an expired verification stale) is history, not a new verification.
+VERIFICATION_RECORD = ("verification_state", "verified_by", "verified_at", "expires_at")
 
 
 @dataclass(frozen=True)
@@ -626,7 +629,13 @@ def trust_problem(
             f"{lbl}: trust_state {v['trust_state']}, trust function gives "
             f"{res.trust_state} ({res.rule}) at revision {rev}",
         )
-    if rev == v["revision_from"] and v["verification_state"] == "verified" and res.verification_state != "verified":
+    carried = prev is not None and all(prev[k] == v[k] for k in VERIFICATION_RECORD)  # a recompute carries it forward
+    if (
+        rev == v["revision_from"]
+        and v["verification_state"] == "verified"
+        and not carried
+        and res.verification_state != "verified"
+    ):
         return Finding("D-19", DOMAIN, f"{lbl}: verification not supported: {'; '.join(res.verification_reasons)}")
     wrong = [p for p, val in res.selected.items() if field_value(v, p) != val]
     if wrong:

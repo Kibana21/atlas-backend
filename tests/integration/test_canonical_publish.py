@@ -236,7 +236,7 @@ def test_attribution_must_fit_the_channel(ingest: tuple[psycopg.Connection[Any],
     assert "D-13" in caught.value.rule_ids
     with pytest.raises(PublishRejected) as caught:
         publish(conn, scope, LOADER, draft_from_graph(kind="revert"), TAXES)
-    assert "D-14" in caught.value.rule_ids  # reverts are CP4 work
+    assert "H-05" in caught.value.rule_ids  # a revert must name its revision; reverts are built by history.revert
 
 
 def test_cross_check_the_dependent_relationship_evidence(ingest: tuple[psycopg.Connection[Any], OrgScope]) -> None:

@@ -21,6 +21,11 @@ from atlas.persistence.canonical.rows import COLUMNS, from_db
 Connection = psycopg.Connection[Any]
 
 
+def libpq_url(url: str) -> str:
+    """psycopg connection string for a settings URL (which uses SQLAlchemy's ``postgresql+psycopg://`` form)."""
+    return url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+
 @dataclass(frozen=True)
 class OrgScope:
     """The organization every canonical read and write is limited to. Built only by :func:`resolve_scope`."""

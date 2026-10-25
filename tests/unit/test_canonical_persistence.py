@@ -243,3 +243,10 @@ def test_plan_works_on_a_copy() -> None:
     p = _Plan(SCOPE, base, g.TAXES["1.1.0"], 2, AT2)
     p.entity_rows([entity_input(g.TEAM, display_name="Renamed")])
     assert base.tables == before
+
+
+def test_settings_urls_become_libpq_urls() -> None:
+    from atlas.persistence.canonical.repository import libpq_url
+
+    assert libpq_url("postgresql+psycopg://u@h:5432/atlas_test") == "postgresql://u@h:5432/atlas_test"
+    assert libpq_url("postgresql://u@h/db") == "postgresql://u@h/db"
