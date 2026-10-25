@@ -394,3 +394,16 @@ def test_automatic_retyping_is_allowed_in_any_change_set() -> None:
 
 def test_finding_renders_its_class_and_rule() -> None:
     assert str(rules.Finding("D-12", rules.DOMAIN, "x")) == "[DOMAIN] D-12: x"
+
+
+def test_d19_checks_a_verification_when_recorded_not_when_carried_forward() -> None:
+    ds = g.build()
+    ev(ds, g.WEB)["expires_at"] = "2026-10-05T00:00:00Z"
+    _second_revision(ds, kind="migration", actor_kind="service")
+    ds.tables["change_sets"][-1].update(channel="migration", created_at="2026-10-06T00:00:00Z")
+    old = ev(ds, g.WEB)
+    old["revision_to"] = 2
+    ds.tables["entity_versions"].append({**old, "revision_from": 2, "revision_to": None, "trust_state": "stale"})
+    assert found(ds, {g.ORG: {2}}) == set()  # expired and carried forward: stale, no D-19
+    g.current(ds, "entity_versions", entity_id=g.WEB)["verified_at"] = "2026-10-06T00:00:00Z"  # a new record now
+    assert "D-19" in found(ds, {g.ORG: {2}})

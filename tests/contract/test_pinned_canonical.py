@@ -509,3 +509,73 @@ def test_atlas_specs_negative_mutation_is_detected(mutate: Mutation, rule: str) 
     ds, taxes = golden()
     mutate(ds)
     assert rule in {f.rule for f in rules.validate(ds, taxes)}
+
+
+# --------------------------------------------------------------------------- CP4: import planner, replay drafts, revert
+
+
+def _at(ds: Dataset, revision: int) -> Dataset:
+    """The fixture's history as it stood at ``revision`` (later rows dropped, later closings undone)."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    for name, rows in ds.tables.items():
+        keep = []
+        for r in rows:
+            start = r.get("revision_from", r.get("revision", r.get("created_revision", r.get("change_revision", 0))))
+            if start is not None and start > revision:
+                continue
+            r = dict(r)
+            if r.get("revision_to") is not None and r["revision_to"] > revision:
+                r["revision_to"] = None
+            keep.append(r)
+        out[name] = keep
+    return Dataset(out, ds.policy)
+
+
+def test_import_plan_reproduces_revision_2_and_its_report() -> None:
+    from atlas.domain.canonical.importer import plan_batch
+
+    ds, taxes = golden()
+    batch = json.loads((FIXTURE / "inputs" / "aws-inventory.r2.json").read_text(encoding="utf-8"))
+    report = json.loads((FIXTURE / "inputs" / "aws-inventory.r2.expected-report.json").read_text(encoding="utf-8"))
+    org = next(o["id"] for o in ds.tables["organizations"] if o["key"] == batch["org_key"])
+    plan = plan_batch(taxes[batch["taxonomy_version"]], batch, as_of(ds, org, 1))
+    created = [r for r in ds.tables["relationships"] if r["org_id"] == org and r["created_revision"] == 2]
+    assert {d["entity_id"] for d in plan.new_entities} == {
+        e["id"] for e in ds.tables["entities"] if e["org_id"] == org and e["created_revision"] == 2
+    }
+    assert {d["id"] for d in plan.new_relationships} == {r["id"] for r in created if r["rel_type"] != "CONTAINS"}
+    assert set(plan.new_containments) == {(r["from_id"], r["to_id"]) for r in created if r["rel_type"] == "CONTAINS"}
+    assert plan.report() == report["rejected"]
+    for rev in (2, ds.head(org)):
+        assert plan_batch(taxes[batch["taxonomy_version"]], batch, as_of(ds, org, rev)).empty  # replay is a no-op
+
+
+def test_recorded_drafts_cover_every_revision() -> None:
+    from atlas.persistence.canonical import history
+
+    ds, _ = golden()
+    org = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
+    recs = history.recorded_drafts(ds, org)
+    assert [r.revision for r in recs] == list(range(1, 9))
+    assert [r.taxonomy_version for r in recs] == ["1.1.0"] * 6 + ["1.2.0-test.1"] * 2
+    assert sum(len(r.draft.assertions) for r in recs) == sum(
+        1 for a in ds.tables["fact_assertions"] if a["org_id"] == org
+    )
+
+
+def test_revert_draft_of_revision_4_equals_the_recorded_revert() -> None:
+    from atlas.persistence.canonical import history
+    from atlas.persistence.canonical.publish import PublishRejected
+
+    ds, _ = golden()
+    org = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
+    draft = history.revert_draft(_at(ds, 4), org, 4, 4, history.new_id, "revert")
+    recorded = [v for v in ds.tables["relationship_versions"] if v["org_id"] == org and v["revision_from"] == 5]
+    assert [r.relationship_id for r in draft.relationships] == [v["relationship_id"] for v in recorded]
+    assert [(r.record_state, r.attributes) for r in draft.relationships] == [
+        (v["record_state"], v["attributes"]) for v in recorded
+    ]
+    closed_at_5 = {a["id"] for a in ds.tables["fact_assertions"] if a["org_id"] == org and a["revision_to"] == 5}
+    assert set(draft.close_assertions) == closed_at_5
+    with pytest.raises(PublishRejected):  # revision 4's fact was changed again by the revert at r5
+        history.revert_draft(ds, org, 4, ds.head(org), history.new_id, "again")

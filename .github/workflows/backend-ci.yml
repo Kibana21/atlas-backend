@@ -268,6 +268,74 @@ jobs:
           ATLAS_REDIS_KEY_PREFIX: "atlas:test:ci:"
         run: uv run pytest -m integration --no-cov -ra
 
+  benchmark:
+    # ATLAS-002 CP4 (A2-T20, A2-T25): publication at increasing graph sizes on this job's own disposable postgres:15
+    # (never the shared server). Not a required check: it records measurements; it fails only if publishing fails.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:15.19@sha256:baa22e6286bf832cb147b8bb5aa9d8bc999846d69c21d11bf63f58fbeed1fa48
+        env:
+          POSTGRES_PASSWORD: ci-ephemeral-bootstrap
+          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+          POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --locale=C --encoding=UTF8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+      redis:
+        # Job-local Redis (settings require one; the benchmark does not use it)
+        image: redis:7.4.9@sha256:a8f08480e1f88f2647fed492d1178c06abb0d0c1fbf02c682a61e2f483fb3954
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked
+      - name: Databases and roles (ATLAS-001 bootstrap) plus a CI-only superuser atlas_db_user (single-user model)
+        env:
+          PGPASSWORD: ci-ephemeral-bootstrap
+          CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          for var in ATLAS_MIGRATOR_PASSWORD ATLAS_APP_PASSWORD ATLAS_TEST_MIGRATOR_PASSWORD ATLAS_TEST_APP_PASSWORD \
+                     ATLAS_DB_USER_PASSWORD; do
+            value="$(openssl rand -hex 24)"
+            echo "::add-mask::${value}"
+            echo "${var}=${value}" >> "$GITHUB_ENV"
+            export "${var}=${value}"
+          done
+          docker exec -i -e PGPASSWORD -e ATLAS_MIGRATOR_PASSWORD -e ATLAS_APP_PASSWORD \
+            -e ATLAS_TEST_MIGRATOR_PASSWORD -e ATLAS_TEST_APP_PASSWORD "$CONTAINER" \
+            psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 -f - < scripts/db/bootstrap.sql
+          printf '%s\n' '\set ON_ERROR_STOP on' '\getenv pw ATLAS_DB_USER_PASSWORD' \
+            "CREATE ROLE atlas_db_user LOGIN SUPERUSER PASSWORD :'pw';" |
+            docker exec -i -e PGPASSWORD -e ATLAS_DB_USER_PASSWORD "$CONTAINER" psql -U postgres -d postgres -X -q -f -
+      - name: Migrate atlas_test and run the publication benchmark (1k, 5k, 10k entities)
+        env:
+          ATLAS_ENV: test
+          ATLAS_ENV_FILE: /nonexistent
+          ATLAS_DB_ROLE_MODEL: single
+          ATLAS_DATABASE_URL: postgresql+psycopg://atlas_db_user:${{ env.ATLAS_DB_USER_PASSWORD }}@localhost:5432/atlas_test
+          ATLAS_MIGRATION_DATABASE_URL: postgresql+psycopg://atlas_db_user:${{ env.ATLAS_DB_USER_PASSWORD }}@localhost:5432/atlas_test
+          ATLAS_DB_APP_ROLE: atlas_db_user
+          ATLAS_REDIS_URL: redis://localhost:6379/11
+          ATLAS_REDIS_KEY_PREFIX: "atlas:test:bench:"
+        run: |
+          uv run alembic upgrade head
+          uv run python scripts/benchmark_canonical.py --sizes 1000,5000,10000 --out build/benchmark-canonical.json
+
   images:
     # B-21/B-24: build api + worker, hadolint, Trivy (vulnerabilities, secrets, Dockerfile), non-root and
     # content checks, then a hardened runtime check on an isolated Docker network with the job's own
