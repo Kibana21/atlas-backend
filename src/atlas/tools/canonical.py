@@ -9,6 +9,9 @@
 Every command connects with the **ingestion** connection only (``ATLAS_INGEST_DATABASE_URL``, or the single
 account in the local single-user model) and acts as a configured service or system identity (ADR-0008 §10). Nothing
 here reads an actor from the input files. Output is a JSON summary without connection details.
+
+Exit codes: 0 success (a no-op too); 1 configuration, organization, input or database error (one line on stderr, no
+connection details); 2 invalid arguments (argparse usage) or a rejected change set (JSON findings, nothing written).
 """
 
 from __future__ import annotations
@@ -20,12 +23,14 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
+from pydantic import ValidationError
 
 from atlas.core.settings import Settings, get_settings
 from atlas.domain.canonical import rules, taxonomy
 from atlas.domain.canonical.graph import TABLES, Dataset
 from atlas.persistence.canonical import history, repository
 from atlas.persistence.canonical.publish import Actor, PublishRejected, PublishResult
+from atlas.persistence.canonical.repository import OrganizationNotFound, OrgScope
 
 STEWARD_REVERT = Actor("system", "atlas.system", "revert", "Revert command")
 
@@ -54,15 +59,26 @@ def _summary(result: PublishResult) -> dict[str, Any]:
     }
 
 
+class CliError(Exception):
+    """A refusal reported as one line on stderr (exit 1); nothing is written."""
+
+
+def _taxonomies_loaded(conn: repository.Connection, scope: OrgScope, taxes: dict[str, Any], *extra: str) -> None:
+    """Refuse a partial taxonomy set: the re-type checks (D-04, D-10) run only for loaded taxonomy versions."""
+    missing = (repository.taxonomy_versions(conn, scope) | set(extra)) - taxes.keys()
+    if missing:
+        raise CliError(f"taxonomy versions in use but not loaded by this command: {', '.join(sorted(missing))}")
+
+
 def run(args: argparse.Namespace, settings: Settings) -> dict[str, Any]:
     url = settings.ingestion_url
     if url is None:
-        raise SystemExit(
-            "no ingestion connection configured (ATLAS_INGEST_DATABASE_URL, or ATLAS_DB_ROLE_MODEL=single)"
-        )
+        raise CliError("no ingestion connection configured (ATLAS_INGEST_DATABASE_URL, or ATLAS_DB_ROLE_MODEL=single)")
     taxes = {taxonomy.CURRENT_VERSION: taxonomy.current()}
     with psycopg.connect(repository.libpq_url(url), application_name="atlas-canonical-cli") as conn:
         scope = repository.resolve_scope(conn, args.org)
+        if args.command in ("revert", "recompute-trust"):
+            _taxonomies_loaded(conn, scope, taxes)
         if args.command == "replay":
             ds, taxes = load_fixture(Path(args.fixture))
             source = next(o["id"] for o in ds.tables["organizations"] if o["key"] == (args.source_org or args.org))
@@ -74,6 +90,7 @@ def run(args: argparse.Namespace, settings: Settings) -> dict[str, Any]:
             }
         if args.command == "import":
             batch = json.loads(Path(args.batch).read_text(encoding="utf-8"))
+            _taxonomies_loaded(conn, scope, taxes, batch["taxonomy_version"])
             outcome = history.apply_import(conn, scope, batch, taxes)
             return {"command": "import", **_summary(outcome.result), "rejected": outcome.plan.report()}
         if args.command == "revert":
@@ -83,7 +100,10 @@ def run(args: argparse.Namespace, settings: Settings) -> dict[str, Any]:
             }
         if args.command == "recompute-trust":
             return {"command": "recompute-trust", **_summary(history.recompute_trust(conn, scope, taxes))}
-        row = history.create_snapshot(conn, scope, args.label)
+        try:
+            row = history.create_snapshot(conn, scope, args.label)
+        except psycopg.errors.UniqueViolation:
+            raise CliError(f"snapshot label {args.label!r} already exists") from None
         return {
             "command": "snapshot",
             "label": row["label"],
@@ -110,13 +130,31 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
+def _fail(message: str) -> int:
+    print(f"atlas-canonical: {message}", file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        out = run(args, get_settings())
+        settings = get_settings()
+    except ValidationError as exc:  # field names and messages only: input values may hold connection URLs
+        problems = "; ".join(f"{'.'.join(map(str, e['loc'])) or 'settings'}: {e['msg']}" for e in exc.errors())
+        return _fail(f"invalid configuration: {problems}")
+    try:
+        out = run(args, settings)
     except PublishRejected as exc:
         print(json.dumps({"rejected": [str(f) for f in exc.findings]}, indent=2))
         return 2
+    except CliError as exc:
+        return _fail(str(exc))
+    except OrganizationNotFound as exc:
+        return _fail(f"organization not found: {exc}")
+    except psycopg.OperationalError as exc:  # the driver's message names the server: no connection details
+        return _fail(f"ingestion database unavailable or operation failed ({type(exc).__name__}, {exc.sqlstate})")
+    except OSError as exc:
+        return _fail(f"cannot read input: {exc.filename or exc}")
     print(json.dumps(out, indent=2, default=str))
     return 0
 
