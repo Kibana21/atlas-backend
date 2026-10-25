@@ -32,7 +32,7 @@ from atlas.persistence.canonical.publish import (
     publish,
 )
 from atlas.persistence.canonical.repository import OrgScope
-from tests.integration.conftest import connect, tx_connect
+from tests.integration.conftest import connect, connect_kwargs, tx_connect
 from tests.integration.test_canonical_publish import LOADER, draft_from_graph
 from tests.unit import canonical_graph as g
 
@@ -279,7 +279,7 @@ def test_an_expired_verification_turns_the_fact_stale(ingest_tx: psycopg.Connect
 
 
 def test_concurrent_publishers_are_serialized_and_revisions_stay_gap_free(cp4_orgs: None, ingest_url: str) -> None:
-    holder = psycopg.connect(ingest_url)
+    holder = psycopg.connect(**connect_kwargs(ingest_url))
     done: dict[str, Any] = {}
     try:
         scope = repository.resolve_scope(holder, "cp4-other")

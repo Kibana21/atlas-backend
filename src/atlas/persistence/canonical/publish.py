@@ -440,16 +440,15 @@ class _Plan:
             flags = relationship_flags(fv, tv)
             if any(v[k] != val for k, val in flags.items()):
                 self._version("relationship_versions", "relationship_id", rid, {**_strip(v), **flags}, self.current_rv)
-        ix = rules.Index(self.ds)
         if recompute_all:  # time-driven re-evaluation of every current fact (trust-function.md, recomputation)
             entities, touched_rel = set(self.current_ev), set(self.current_rv)
         facts = [("entity", fid) for fid in sorted(entities | (asserted & set(self.current_ev)))] + [
             ("relationship", fid) for fid in sorted(touched_rel | (asserted & set(self.current_rv)))
         ]
         for kind, fid in facts:
-            self._trust(ix, kind, fid, expected.get(fid))
+            self._trust(kind, fid, expected.get(fid))
 
-    def _trust(self, ix: rules.Index, kind: str, fid: str, expected: str | None) -> None:
+    def _trust(self, kind: str, fid: str, expected: str | None) -> None:
         current = self.current_ev if kind == "entity" else self.current_rv
         table, key = (
             ("entity_versions", "entity_id") if kind == "entity" else ("relationship_versions", "relationship_id")
@@ -460,8 +459,7 @@ class _Plan:
         if v["record_state"] != "present":
             self._tombstone_trust(table, key, fid, v, current)
             return
-        probe = {**v, "revision_from": self.rev, "revision_to": None}
-        claim = rules.claim_of(ix, self.tax, kind, probe)
+        claim = self._claim(kind, fid, v)
         if claim is None:
             return  # unknown type or missing endpoint: the domain rules report it
         assertions = [
@@ -487,6 +485,19 @@ class _Plan:
             self.reject("D-12", f"{kind} {fid}: expected trust state {expected}, the trust function gives {result}")
         if v["trust_state"] != result:
             self._version(table, key, fid, {**_strip(v), "trust_state": result}, current, with_trust=True)
+
+    def _claim(self, kind: str, fid: str, v: Row) -> Claim | None:
+        """The claim as of this change set: endpoints are resolved from the plan's current versions, which include
+        the versions this change set writes (an index built earlier would no longer see them)."""
+        if kind == "entity":
+            return Claim("entity", self.tax.is_physical(v["type_key"]))
+        r = self.relationships[fid]
+        ends = [self.current_ev.get(r["from_id"]), self.current_ev.get(r["to_id"])]
+        rule = self.tax.rels.get(r["rel_type"])
+        if rule is None or ends[0] is None or ends[1] is None:
+            return None
+        physical = any(self.tax.is_physical(e["type_key"]) for e in ends if e is not None)
+        return Claim("relationship", physical, frozenset(rule["allowed_evidence_kinds"]))
 
     def _tombstone_trust(self, table: str, key: str, fid: str, v: Row, current: dict[str, Row]) -> None:
         """A removal or merge records how the removal is known: the label of its ``record_state`` evidence."""
