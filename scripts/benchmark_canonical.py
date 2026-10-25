@@ -104,14 +104,14 @@ def timed(fn: Any) -> tuple[Any, float]:
 
 def run_size(settings: Settings, org: int, size: int) -> dict[str, Any]:
     key = f"bench-{size}"
-    with psycopg.connect(settings.migration_database_url, autocommit=True) as owner:
+    with psycopg.connect(repository.libpq_url(settings.migration_database_url), autocommit=True) as owner:
         org_id = uid(org, 0)
         owner.execute("INSERT INTO atlas.organization (id, key, display_name) VALUES (%s, %s, %s)", (org_id, key, key))
         owner.execute("INSERT INTO atlas.org_revision (org_id, last) VALUES (%s, 0)", (org_id,))
     url = settings.ingestion_url
     assert url is not None  # noqa: S101 - checked by main()
     draft = synthetic_draft(org, size)
-    with psycopg.connect(url) as conn:
+    with psycopg.connect(repository.libpq_url(url)) as conn:
         scope = repository.resolve_scope(conn, key)
         initial, t_initial = timed(lambda: publish(conn, scope, history.FIXTURE_LOADER, draft, TAXES))
         conn.commit()

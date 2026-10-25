@@ -61,7 +61,7 @@ def run(args: argparse.Namespace, settings: Settings) -> dict[str, Any]:
             "no ingestion connection configured (ATLAS_INGEST_DATABASE_URL, or ATLAS_DB_ROLE_MODEL=single)"
         )
     taxes = {taxonomy.CURRENT_VERSION: taxonomy.current()}
-    with psycopg.connect(url, application_name="atlas-canonical-cli") as conn:
+    with psycopg.connect(repository.libpq_url(url), application_name="atlas-canonical-cli") as conn:
         scope = repository.resolve_scope(conn, args.org)
         if args.command == "replay":
             ds, taxes = load_fixture(Path(args.fixture))
