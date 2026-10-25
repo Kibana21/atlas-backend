@@ -102,6 +102,16 @@ def load(conn: Connection, scope: OrgScope, *, history: bool = False) -> Dataset
     return Dataset(tables)
 
 
+def taxonomy_versions(conn: Connection, scope: OrgScope) -> set[str]:
+    """Every taxonomy version stamped on the organization's entity and relationship versions, at any revision."""
+    rows = conn.execute(
+        "SELECT taxonomy_version FROM atlas.entity_version WHERE org_id = %s "
+        "UNION SELECT taxonomy_version FROM atlas.relationship_version WHERE org_id = %s",
+        (scope.org_id, scope.org_id),
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
 def evidence_rows(conn: Connection, scope: OrgScope, ids: list[str]) -> list[Row]:
     """Evidence rows of this organization by ID (IDs of other organizations are not found)."""
     return _select(conn, "evidence", "id = ANY(%s)", (scope.org_id, ids)) if ids else []
