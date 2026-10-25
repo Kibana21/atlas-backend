@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 from functools import lru_cache
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
@@ -31,6 +31,13 @@ TEST_REDIS_DB = 11
 TEST_PREFIX = "atlas:test:"
 LOCAL_PREFIX = "atlas:local:"
 RESTRICTED_ENVIRONMENTS = frozenset({Environment.UAT, Environment.PROD})
+# Owner decision (25 Oct 2026, ATLAS-002): local development and its integration tests may use one database account
+# for every role. Never in dev/uat/prod: that keeps the six-role separation (DEC-044) as the hardening option.
+SINGLE_USER_ENVIRONMENTS = frozenset({Environment.LOCAL, Environment.TEST})
+
+
+def database_user(url: str) -> str | None:
+    return urlsplit(url).username
 
 
 class SettingsError(ValueError):
@@ -57,6 +64,9 @@ class Settings(BaseSettings):
     # name, for canonical grants) and ingestion entry points (CP4) use them. Absent until the owner's gate G3-R.
     ingest_database_url: str | None = Field(default=None, description="Ingestion role connection URL")
     db_ingest_role: str | None = Field(default=None, description="Ingestion role name; grantee of canonical writes")
+    # "separated": runtime, migration and ingestion are different roles (DEC-044). "single": one account for all of
+    # them, local and test only (owner decision, 25 Oct 2026); database privileges then separate nothing.
+    db_role_model: Literal["separated", "single"] = "separated"
     redis_url: str
     redis_key_prefix: str
     cors_origins: Annotated[tuple[str, ...], NoDecode] = ()
@@ -114,17 +124,46 @@ class Settings(BaseSettings):
                 problems.append(f"local Redis keys must start with {LOCAL_PREFIX!r}")
         if not self.redis_key_prefix.startswith("atlas:") or not self.redis_key_prefix.endswith(":"):
             problems.append("redis_key_prefix must start with 'atlas:' and end with ':'")
-        if self.ingest_database_url is not None:
-            ingest_user = urlsplit(self.ingest_database_url).username
+        if self.db_role_model == "single":
+            problems += self._single_user_problems()
+        elif self.ingest_database_url is not None:
+            ingest_user = database_user(self.ingest_database_url)
             if self.db_ingest_role is None or ingest_user != self.db_ingest_role:
                 problems.append("ingest_database_url must connect as db_ingest_role")
-            if ingest_user in {urlsplit(self.database_url).username, urlsplit(self.migration_database_url).username}:
+            if ingest_user in {database_user(self.database_url), database_user(self.migration_database_url)}:
                 problems.append("the ingestion role must differ from the runtime and migration roles")
         if self.diagnostics_enabled and self.env in RESTRICTED_ENVIRONMENTS:
             problems.append(f"diagnostics must not be enabled in {self.env.value}")
         if problems:
             raise SettingsError("; ".join(problems))
         return self
+
+    def _single_user_problems(self) -> list[str]:
+        problems = []
+        if self.env not in SINGLE_USER_ENVIRONMENTS:
+            problems.append(f"db_role_model 'single' is for local development and tests only, not {self.env.value}")
+        urls = [self.database_url, self.migration_database_url, self.ingest_database_url]
+        users = {database_user(u) for u in urls if u is not None}
+        if len(users) != 1 or None in users:
+            problems.append("db_role_model 'single' needs one database user in every URL")
+        user = next(iter(users))
+        if self.db_app_role != user or self.db_ingest_role not in (None, user):
+            problems.append("db_role_model 'single' needs db_app_role (and db_ingest_role, if set) equal to that user")
+        return problems
+
+    @property
+    def ingestion_url(self) -> str | None:
+        """Connection for ingestion entry points: the ingestion role, or in the single-user model the one account."""
+        if self.ingest_database_url is not None or self.db_role_model == "separated":
+            return self.ingest_database_url
+        return self.migration_database_url
+
+    @property
+    def ingestion_role(self) -> str | None:
+        """Grantee of canonical writes in migrations (separated model) or the one account (single-user model)."""
+        if self.db_ingest_role is not None or self.db_role_model == "separated":
+            return self.db_ingest_role
+        return database_user(self.migration_database_url)
 
     @property
     def docs_enabled(self) -> bool:

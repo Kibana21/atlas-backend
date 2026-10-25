@@ -340,3 +340,37 @@ def test_ingest_role_problems_fail(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "atlas_test_ingest missing" in text
     assert "CONNECTION LIMIT 2" in text
     assert "entity:DELETE" in text
+
+
+def _single_settings() -> Any:
+    url = "postgresql+psycopg://atlas_db_user@localhost:5432/atlas_db"
+    return make_settings(
+        env="local", database_url=url, migration_database_url=url, db_app_role="atlas_db_user",
+        db_role_model="single", redis_url="redis://localhost:6379/10", redis_key_prefix="atlas:local:",
+    )  # fmt: skip
+
+
+def test_single_user_model_warns_about_a_superuser(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_privileges(monkeypatch, _ingest_answers(**{"pg_roles u WHERE": [(True, True)], "pg_roles r WHERE": []}))
+    report = Report()
+    snapshot = doctor.run(Targets(_single_settings(), "postgresql://localhost:5432/postgres", None), report)
+    text = report.render()
+    assert "WARN     postgres.role_model: single-user model" in text
+    assert "SUPERUSER" in text
+    assert "postgres.ingest_roles" not in text  # not used in the single-user model
+    assert "PASS     postgres.runtime_role: connected as atlas_app" in text  # the fake answers as before
+    assert snapshot["postgres"]["single_user"]["superuser"] is True
+
+
+def test_single_user_model_reports_a_missing_or_plain_account(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_privileges(monkeypatch, _ingest_answers(**{"pg_roles u WHERE": []}))
+    report = Report()
+    doctor.run(Targets(_single_settings(), "postgresql://localhost:5432/postgres", None), report)
+    assert "FAIL     postgres.role_model: single-user model: role 'atlas_db_user' does not exist" in report.render()
+    _patch_privileges(monkeypatch, _ingest_answers(**{"pg_roles u WHERE": [(False, False)]}))
+    report = Report()
+    doctor.run(Targets(_single_settings(), "postgresql://localhost:5432/postgres", None), report)
+    assert (
+        "PASS     postgres.role_model: single-user model: every Atlas connection uses 'atlas_db_user'"
+        in report.render()
+    )

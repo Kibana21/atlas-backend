@@ -245,6 +245,28 @@ jobs:
           docker exec -i -e PGPASSWORD "$CONTAINER" psql -U postgres -d postgres -X -At \
             -c "SELECT string_agg(rolname, ',' ORDER BY rolname) FROM pg_roles WHERE rolname LIKE 'atlas\_%'" | tee build-roles.txt
           grep -qx 'atlas_app,atlas_migrator,atlas_test_app,atlas_test_migrator' build-roles.txt
+      - name: Single-user model (owner decision, ATLAS-002) - CI-only superuser atlas_db_user, as on the local server
+        env:
+          PGPASSWORD: ci-ephemeral-bootstrap
+          CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          value="$(openssl rand -hex 24)"
+          echo "::add-mask::${value}"
+          echo "ATLAS_DB_USER_PASSWORD=${value}" >> "$GITHUB_ENV"
+          printf '%s\n' '\set ON_ERROR_STOP on' '\getenv pw ATLAS_DB_USER_PASSWORD' \
+            "CREATE ROLE atlas_db_user LOGIN SUPERUSER PASSWORD :'pw';" |
+            docker exec -i -e PGPASSWORD -e ATLAS_DB_USER_PASSWORD="${value}" "$CONTAINER" psql -U postgres -d postgres -X -q -f -
+      - name: Integration tests on atlas_test in the single-user model (atlas_db is not migrated)
+        env:
+          ATLAS_ENV: test
+          ATLAS_DB_ROLE_MODEL: single
+          ATLAS_DATABASE_URL: postgresql+psycopg://atlas_db_user:${{ env.ATLAS_DB_USER_PASSWORD }}@localhost:5432/atlas_test
+          ATLAS_MIGRATION_DATABASE_URL: postgresql+psycopg://atlas_db_user:${{ env.ATLAS_DB_USER_PASSWORD }}@localhost:5432/atlas_test
+          ATLAS_DB_APP_ROLE: atlas_db_user
+          ATLAS_REDIS_URL: redis://localhost:6379/11
+          ATLAS_REDIS_KEY_PREFIX: "atlas:test:ci:"
+        run: uv run pytest -m integration --no-cov -ra
 
   images:
     # B-21/B-24: build api + worker, hadolint, Trivy (vulnerabilities, secrets, Dockerfile), non-root and

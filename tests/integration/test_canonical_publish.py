@@ -248,6 +248,7 @@ def test_cross_check_the_dependent_relationship_evidence(ingest: tuple[psycopg.C
     assert {"D-04", "D-05"} & caught.value.rule_ids
 
 
+@pytest.mark.role_separation
 def test_the_runtime_role_cannot_publish(migrated: None, settings: Settings) -> None:
     with tx_connect(settings.database_url) as conn, conn.transaction(force_rollback=True):
         scope = repository.resolve_scope(conn, "default")
@@ -281,4 +282,4 @@ def test_other_organizations_are_not_found(migrated: None, settings: Settings, i
         with connect(settings.migration_database_url) as owner:
             owner.execute("DELETE FROM atlas.org_revision WHERE org_id = %s", (other,))
             owner.execute("DELETE FROM atlas.organization WHERE id = %s", (other,))
-    assert make_url(ingest_url).username == settings.db_ingest_role
+    assert make_url(ingest_url).username == settings.ingestion_role

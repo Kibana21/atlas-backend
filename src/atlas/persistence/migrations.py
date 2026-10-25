@@ -51,7 +51,7 @@ def run(context: Any) -> None:
         fileConfig(config.config_file_name, disable_existing_loggers=False)
     settings: Settings = config.attributes.get(SETTINGS_ATTRIBUTE) or get_settings()
     config.attributes[APP_ROLE_ATTRIBUTE] = settings.db_app_role
-    config.attributes[INGEST_ROLE_ATTRIBUTE] = settings.db_ingest_role
+    config.attributes[INGEST_ROLE_ATTRIBUTE] = settings.ingestion_role
     # Every migration names schema ``atlas`` explicitly. With the migrator's role default (search_path = atlas) the
     # dialect would take atlas as its default schema, and Alembic would compare it as the unnamed schema; setting
     # search_path for every connection of this engine makes atlas an ordinary named schema for `alembic check`.

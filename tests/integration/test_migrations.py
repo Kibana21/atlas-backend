@@ -49,7 +49,9 @@ def test_every_table_is_owned_by_the_migrator_and_no_extension_is_created(migrat
     owner = make_url(settings.migration_database_url).username
     tables = _atlas_tables(settings)
     assert {t for t, _ in tables} == {"alembic_version", *(t.name for t in metadata.sorted_tables)}
-    assert {o for _, o in tables} == {owner}
+    assert {o for t, o in tables if t != "alembic_version"} == {owner}
+    # alembic_version keeps the owner that created it: the ATLAS-001 migrator, or the single-user account
+    assert dict(tables)["alembic_version"] in {owner, "atlas_test_migrator"}
     with connect(settings.migration_database_url) as conn:
         assert conn.execute("SELECT extname FROM pg_extension ORDER BY 1").fetchall() == [("plpgsql",)]
         triggers = conn.execute(

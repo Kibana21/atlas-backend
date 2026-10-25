@@ -85,6 +85,7 @@ def test_the_default_organization_exists_with_revision_zero(migrated: None, sett
 # --------------------------------------------------------------------------- AC-CP3-02: the runtime role reads only
 
 
+@pytest.mark.role_separation
 @pytest.mark.parametrize("table", CANONICAL)
 def test_runtime_role_cannot_write_canonical_tables(migrated: None, settings: Settings, table: str) -> None:
     ident = sql.Identifier("atlas", table)
@@ -104,6 +105,7 @@ def test_runtime_role_cannot_write_canonical_tables(migrated: None, settings: Se
 # --------------------------------------------------------------------------- AC-CP3-03: the ingestion role
 
 
+@pytest.mark.role_separation
 def test_ingestion_role_inserts_and_closes_once(migrated: None, ingest_url: str) -> None:
     with tx_connect(ingest_url) as conn, conn.transaction(force_rollback=True):
         org = default_org(conn)
@@ -135,6 +137,7 @@ def test_ingestion_role_inserts_and_closes_once(migrated: None, ingest_url: str)
         conn.execute("UPDATE atlas.org_revision SET last = 2 WHERE org_id = %s", (org,))
 
 
+@pytest.mark.role_separation
 @pytest.mark.parametrize(
     "statement",
     [
@@ -182,6 +185,7 @@ def test_set_once_binds_the_owner_too(migrated: None, settings: Settings) -> Non
             conn.execute("UPDATE atlas.entity_version SET display_name = 'Rewritten', revision_to = 1")
 
 
+@pytest.mark.role_separation
 @pytest.mark.parametrize(("role", "database"), [("atlas_ingest", "atlas_test"), ("atlas_test_ingest", "atlas_db")])
 def test_ingestion_roles_cannot_connect_to_the_other_environment(settings: Settings, role: str, database: str) -> None:
     with connect(settings.database_url) as conn:
@@ -194,6 +198,7 @@ def test_ingestion_roles_cannot_connect_to_the_other_environment(settings: Setti
 TABLE_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
 
 
+@pytest.mark.role_separation
 def test_ingestion_grants_follow_the_matrix(migrated: None, settings: Settings, ingest_url: str) -> None:
     role = settings.db_ingest_role
     held: set[tuple[str, str]] = set()
@@ -230,7 +235,7 @@ def test_change_set_time_and_role_are_set_by_the_server(migrated: None, ingest_u
             "SELECT created_at, db_role, now() FROM atlas.change_set WHERE org_id = %s AND revision = 1", (org,)
         ).fetchone() or (None, None, None)
     assert created == now
-    assert role == settings.db_ingest_role == make_url(ingest_url).username
+    assert role == settings.ingestion_role == make_url(ingest_url).username
 
 
 @pytest.mark.parametrize(

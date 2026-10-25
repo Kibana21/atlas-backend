@@ -119,7 +119,9 @@ class Report:
 
 
 # --------------------------------------------------------------------------- checks
-def check_postgres(reader: PgReader, report: Report, db_reader: PgReader | None) -> dict[str, Any]:
+def check_postgres(
+    reader: PgReader, report: Report, db_reader: PgReader | None, single_user: str | None = None
+) -> dict[str, Any]:
     facts: dict[str, Any] = {}
     (version_num,) = reader.rows("SHOW server_version_num")[0]
     major = int(version_num) // 10000
@@ -156,7 +158,10 @@ def check_postgres(reader: PgReader, report: Report, db_reader: PgReader | None)
             "schema atlas present in atlas_db" if has_schema else f"schema atlas missing in atlas_db -> {SETUP_HINT}",
         )
 
-    facts["ingest_roles"] = check_ingest_roles(reader, report, db_reader)
+    if single_user is None:
+        facts["ingest_roles"] = check_ingest_roles(reader, report, db_reader)
+    else:
+        facts["single_user"] = check_single_user(reader, report, single_user)
 
     try:
         rules = reader.rows(
@@ -183,6 +188,31 @@ def check_postgres(reader: PgReader, report: Report, db_reader: PgReader | None)
     else:
         report.add("PASS", "postgres.auth", f"loopback connections for atlas_app use {method!r}")
     return facts
+
+
+def check_single_user(reader: PgReader, report: Report, user: str) -> dict[str, Any]:
+    """Single-user model (owner decision, 25 Oct 2026): one account for every role; warn about its power."""
+    rows = reader.rows(
+        "SELECT u.rolsuper, u.rolcreaterole OR u.rolcreatedb OR u.rolbypassrls OR u.rolreplication "
+        "FROM pg_roles u WHERE u.rolname = %s",
+        (user,),
+    )
+    if not rows:
+        report.add("FAIL", "postgres.role_model", f"single-user model: role {user!r} does not exist")
+        return {"user": user, "exists": False}
+    superuser, elevated = (bool(v) for v in rows[0])
+    report.add(
+        "WARN" if superuser or elevated else "PASS",
+        "postgres.role_model",
+        f"single-user model: every Atlas connection uses {user!r}"
+        + (
+            " (SUPERUSER: database privileges separate nothing; unsuitable beyond local development)"
+            if superuser
+            else ""
+        )
+        + ("" if superuser or not elevated else " (has role/database-creation or RLS-bypass attributes)"),
+    )
+    return {"user": user, "exists": True, "superuser": superuser}
 
 
 def check_ingest_roles(reader: PgReader, report: Report, db_reader: PgReader | None) -> dict[str, Any]:
@@ -298,12 +328,15 @@ def run(targets: Targets, report: Report) -> dict[str, Any]:
         try:
             with pg_session(targets.metadata_url) as reader:
                 has_atlas_db = bool(reader.rows("SELECT 1 FROM pg_database WHERE datname = 'atlas_db'"))
+                single = s.db_app_role if s.db_role_model == "single" else None
                 if has_atlas_db:
                     with pg_session(_with_database(targets.metadata_url, "atlas_db")) as db_reader:
-                        facts = check_postgres(reader, report, db_reader)
+                        facts = check_postgres(reader, report, db_reader, single)
                 else:
-                    facts = check_postgres(reader, report, None)
-                roles_present = facts["atlas_roles_present"]
+                    facts = check_postgres(reader, report, None, single)
+                roles_present = list(facts["atlas_roles_present"])
+                if single is not None and facts["single_user"]["exists"]:
+                    roles_present.append(single)
                 snapshot["postgres"] = facts | {
                     "databases": sorted(
                         d for (d,) in reader.rows("SELECT datname FROM pg_database WHERE NOT datistemplate")

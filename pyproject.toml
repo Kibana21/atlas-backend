@@ -83,6 +83,7 @@ markers = [
     "integration: tests against real PostgreSQL/Redis (CP3+)",
     "pinned_specs: tests against the pinned atlas-specs contract in build/specs (run by make contract)",
     "ci_auth: CI-only password-authentication tests (ATLAS_EXPECT_PASSWORD_AUTH=true)",
+    "role_separation: needs separated database roles (DEC-044); skipped in the local single-user model",
     "contract: contract conformance and schema tests",
     "security: security-focused tests",
 ]

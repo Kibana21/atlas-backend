@@ -34,21 +34,25 @@ def probe_table(migrated: None, settings: Settings) -> Iterator[sql.Identifier]:
             conn.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(table))
 
 
+@pytest.mark.role_separation
 def test_runtime_role_cannot_run_ddl(migrated: None, settings: Settings) -> None:
     with connect(settings.database_url) as conn, pytest.raises(errors.InsufficientPrivilege):
         conn.execute("CREATE TABLE atlas.runtime_ddl_attempt (id integer)")
 
 
+@pytest.mark.role_separation
 def test_runtime_role_cannot_create_in_public(migrated: None, settings: Settings) -> None:
     with connect(settings.database_url) as conn, pytest.raises(errors.InsufficientPrivilege):
         conn.execute("CREATE TABLE public.runtime_ddl_attempt (id integer)")
 
 
+@pytest.mark.role_separation
 def test_runtime_role_cannot_create_temporary_tables(settings: Settings) -> None:
     with connect(settings.database_url) as conn, pytest.raises(errors.InsufficientPrivilege):
         conn.execute("CREATE TEMPORARY TABLE runtime_temp_attempt (id integer)")
 
 
+@pytest.mark.role_separation
 def test_runtime_role_reads_by_default_and_writes_only_with_an_explicit_grant(
     probe_table: sql.Identifier, settings: Settings
 ) -> None:
@@ -66,12 +70,14 @@ def test_runtime_role_reads_by_default_and_writes_only_with_an_explicit_grant(
             app.execute(sql.SQL("DELETE FROM {}").format(probe_table))
 
 
+@pytest.mark.role_separation
 @pytest.mark.parametrize("which", ["database_url", "migration_database_url"])
 def test_test_roles_cannot_connect_to_the_local_database(settings: Settings, which: str) -> None:
     with pytest.raises(psycopg.OperationalError, match="permission denied for database"):
         connect(getattr(settings, which), dbname="atlas_db").close()
 
 
+@pytest.mark.role_separation
 @pytest.mark.parametrize(
     ("role", "database"),
     [
@@ -86,6 +92,7 @@ def test_no_cross_environment_connect_privilege(settings: Settings, role: str, d
         assert conn.execute("SELECT has_database_privilege(%s, %s, 'CONNECT')", (role, database)).fetchone() == (False,)
 
 
+@pytest.mark.role_separation
 def test_no_atlas_role_has_elevated_flags(settings: Settings) -> None:
     with connect(settings.database_url) as conn:
         rows = conn.execute(
@@ -113,6 +120,7 @@ def test_build_info_reports_the_revision_read_by_the_runtime_role(migrated: None
     assert body["db_migration_revision"] == "0002_canonical_graph"
 
 
+@pytest.mark.role_separation
 @pytest.mark.ci_auth
 @pytest.mark.skipif(
     os.environ.get("ATLAS_EXPECT_PASSWORD_AUTH") != "true",

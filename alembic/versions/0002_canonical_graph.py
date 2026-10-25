@@ -10,8 +10,10 @@ FKs, partial unique indexes, ``CHECK`` constraints; no extension), the two appro
 amendment to the ingestion role, the taxonomy reference rows from the packaged artifact, and the default
 organization (ADR-0016). The runtime role keeps only ``SELECT`` (schema default privileges, ATLAS-001).
 
-It **fails** when the ingestion role is not configured or does not exist; it never skips the grants. The
-downgrade drops everything it created and is meant for empty databases only (ADR-0008 §7).
+It **fails** when the ingestion role is not configured or does not exist. In the single-user model (owner decision,
+25 Oct 2026; local and test only) the ingestion role is the migrating account itself, which owns every table it
+creates, so there is nothing to grant and the grants are skipped. The downgrade drops everything it created and is
+meant for empty databases only (ADR-0008 §7).
 """
 
 from __future__ import annotations
@@ -63,9 +65,10 @@ def upgrade() -> None:
     metadata.create_all(bind)
     for statement in schema_0002.trigger_statements():
         op.execute(statement)
-    quoted = bind.dialect.identifier_preparer.quote(role)
-    for statement in schema_0002.grant_statements(quoted):
-        op.execute(statement)
+    if role != bind.execute(sa.text("SELECT session_user")).scalar_one():  # separated model (DEC-044)
+        quoted = bind.dialect.identifier_preparer.quote(role)
+        for statement in schema_0002.grant_statements(quoted):
+            op.execute(statement)
     seed = taxonomy.seed_rows(taxonomy.packaged(TAXONOMY_VERSION))
     for name in SEED_ORDER:
         op.bulk_insert(metadata.tables[f"{schema_0002.SCHEMA}.{name}"], seed[name])
