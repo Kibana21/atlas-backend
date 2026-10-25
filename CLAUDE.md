@@ -13,7 +13,7 @@ ATLAS-001 Checkpoints 2–5 are merged:
 - CP4 (B-13…B-17): Atlas-scoped Redis client; `/health/ready` (database + Redis), so the full contract conforms and `contract-pending.yaml` is empty; Taskiq broker, `diagnostics.ping`, worker round trip, Redis safety check, `make worker`/`worker-smoke`; CI Redis service.
 - CP5 (B-18…B-25): contract drills and response-body validation against the pinned contract (`make contract`); `api`/`worker` Dockerfile (non-root, digest-pinned, Debian libpq); CI `images` job and dedicated secret scan; full README.
 
-The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). **ATLAS-001 is Accepted** (owner, 24 Oct 2026; release `v0.1.0` = `585f3f5`). ATLAS-002 (Canonical Graph Foundation): CP0 done; CP1/CP2 decisions and contracts accepted (G1, G2); **CP3 authorized** (canonical store: migration `0002_canonical_graph`, `atlas.domain.canonical`, `atlas.persistence.canonical`). **Local database account (owner decision, 25 Oct 2026):** local development and integration tests use one existing account, `atlas_db_user`, for every role (`ATLAS_DB_ROLE_MODEL=single`, allowed only for `local`/`test`). It is a PostgreSQL **superuser**, so locally the database enforces structure (keys, FKs, `CHECK`s, the two triggers) but no privilege separation; organization isolation and domain validation stay in the application. The six-role model (DEC-044, ingestion roles from the G3-R scripts) is the documented hardening option, and CI keeps verifying it alongside a single-user run. Migration 0002 runs against the local `atlas_db` only with the owner's separate approval. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/`.
+The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). **ATLAS-001 is Accepted** (owner, 24 Oct 2026; release `v0.1.0` = `585f3f5`). ATLAS-002 (Canonical Graph Foundation): gates G0–G4 passed (canonical store: migration `0002_canonical_graph`, `atlas.domain.canonical`, `atlas.persistence.canonical`; fixture loader, import planner, reverts, trust recomputation, snapshots, CI benchmark). CP5 (evidence and owner acceptance, G5) is documentation only: no ATLAS-002 release tags (owner decision, 25 Oct 2026). Before interactive editing or Scale A data, the performance gate PG-1 must pass (`atlas-specs` ATLAS-002 `acceptance.md`, `follow-ups.md`). **Local database account (owner decision, 25 Oct 2026):** local development and integration tests use one existing account, `atlas_db_user`, for every role (`ATLAS_DB_ROLE_MODEL=single`, allowed only for `local`/`test`). It is a PostgreSQL **superuser**, so locally the database enforces structure (keys, FKs, `CHECK`s, the two triggers) but no privilege separation; organization isolation and domain validation stay in the application. The six-role model (DEC-044, ingestion roles from the G3-R scripts) is the documented hardening option, and CI keeps verifying it alongside a single-user run. `atlas_db` is at `0002_canonical_graph` (migrated with the owner's separate approval, 25 Oct 2026); every further migration, downgrade or restore of `atlas_db` needs separate owner approval, and a failure is diagnosed, never rolled back automatically. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/`.
 
 ## Commands
 
@@ -23,7 +23,7 @@ make check              # lock-check, ruff lint + format-check, strict mypy, pyt
 make contract           # extract the pinned atlas-specs (SPECS_DIR ?= ../atlas-specs), export OpenAPI, conformance
 make security           # pip-audit of runtime deps + security/hygiene tests
 make api API_PORT=8100  # dev server on 127.0.0.1; port 8000 is often taken by other local services
-make migrate            # alembic upgrade head on atlas_db as atlas_migrator (.env)
+make migrate            # alembic upgrade head on atlas_db with the .env migration URL (only with owner approval)
 make integration        # integration tests on atlas_test as the test roles (.env.test)
 make worker             # Taskiq worker on atlas:local:taskiq:queue (DB 10); SIGTERM/Ctrl+C stops it gracefully
 make worker-smoke       # with make worker running: enqueue ping, await marker, delete it
@@ -56,7 +56,7 @@ CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`
   - unresolved spec conflicts;
   - the next checkpoint or gate.
 - **Specs authority:**
-  - `specs.lock` pins a full 40-hex `atlas-specs` SHA (currently the `contract-v0.1.0` commit). Release builds pin a released tag's commit.
+  - `specs.lock` pins a full 40-hex `atlas-specs` SHA (a `main` commit; the OpenAPI contract is still `contract-v0.1.0`, and the canonical contracts are pinned by the same SHA). Release builds pin a released tag's commit.
   - The generated OpenAPI must match the pinned contract.
   - `contract-pending.yaml` lists only operations whose landing task has not merged. It is empty since CP4 and must stay empty (re-adding an implemented operation fails conformance).
   - Never edit the contract here. Change `atlas-specs` first. If the specs conflict, stop and report.
