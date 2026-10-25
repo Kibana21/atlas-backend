@@ -111,3 +111,91 @@ def test_cors_origins_from_comma_separated_env(monkeypatch: pytest.MonkeyPatch) 
         assert get_settings().cors_origins == ("http://a.test", "http://b.test")
     finally:
         get_settings.cache_clear()
+
+
+INGEST = "postgresql+psycopg://atlas_test_ingest:x@localhost:5432/atlas_test"
+
+
+def test_ingest_settings_are_optional_and_validated() -> None:
+    assert make_settings().ingest_database_url is None  # absent until the owner's gate G3-R
+    s = make_settings(ingest_database_url=INGEST, db_ingest_role="atlas_test_ingest")
+    assert s.db_ingest_role == "atlas_test_ingest"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"ingest_database_url": INGEST}, "must connect as db_ingest_role"),
+        ({"ingest_database_url": INGEST, "db_ingest_role": "atlas_ingest"}, "must connect as db_ingest_role"),
+        (
+            {
+                "ingest_database_url": INGEST.replace("atlas_test_ingest", "atlas_test_app"),
+                "db_ingest_role": "atlas_test_app",
+            },
+            "must differ from the runtime and migration roles",
+        ),
+        (
+            {"ingest_database_url": INGEST.replace("/atlas_test", "/atlas_db"), "db_ingest_role": "atlas_test_ingest"},
+            "test runs must use database",
+        ),
+        ({"ingest_database_url": "mysql://x@h/db", "db_ingest_role": "x"}, "postgresql:// URL"),
+    ],
+)
+def test_unsafe_ingest_settings_are_refused(overrides: dict[str, object], message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        make_settings(**overrides)
+
+
+SINGLE = {
+    "db_role_model": "single",
+    "database_url": "postgresql+psycopg://atlas_db_user@localhost:5432/atlas_test",
+    "migration_database_url": "postgresql+psycopg://atlas_db_user@localhost:5432/atlas_test",
+    "db_app_role": "atlas_db_user",
+}
+
+
+def test_single_user_model_uses_one_account_for_every_role() -> None:
+    s = make_settings(**SINGLE)
+    assert s.ingestion_url == SINGLE["migration_database_url"]
+    assert s.ingestion_role == "atlas_db_user"
+    separated = make_settings(ingest_database_url=INGEST, db_ingest_role="atlas_test_ingest")
+    assert (separated.ingestion_url, separated.ingestion_role) == (INGEST, "atlas_test_ingest")
+    assert (make_settings().ingestion_url, make_settings().ingestion_role) == (None, None)  # separated, before G3-R
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({**SINGLE, "db_app_role": "atlas_test_app"}, "db_app_role .* equal to that user"),
+        ({**SINGLE, "db_ingest_role": "atlas_test_ingest"}, "equal to that user"),
+        (
+            {**SINGLE, "database_url": "postgresql+psycopg://atlas_test_app:x@localhost:5432/atlas_test"},
+            "one database user",
+        ),
+        (
+            {**SINGLE, "ingest_database_url": INGEST},
+            "one database user",
+        ),
+        (
+            {
+                **SINGLE,
+                "env": "dev",
+                "database_url": "postgresql+psycopg://atlas_db_user@db:5432/atlas_dev",
+                "migration_database_url": "postgresql+psycopg://atlas_db_user@db:5432/atlas_dev",
+                "redis_url": "redis://r:6379/0",
+                "redis_key_prefix": "atlas:dev:",
+                "diagnostics_enabled": False,
+            },
+            "local development and tests only",
+        ),
+    ],
+)
+def test_single_user_model_guards(overrides: dict[str, object], message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        make_settings(**overrides)
+
+
+def test_single_user_model_still_refuses_the_local_database_in_tests() -> None:
+    url = "postgresql+psycopg://atlas_db_user@localhost:5432/atlas_db"
+    with pytest.raises(ValidationError, match="test runs must use database"):
+        make_settings(**{**SINGLE, "database_url": url, "migration_database_url": url})

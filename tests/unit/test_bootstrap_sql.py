@@ -35,3 +35,34 @@ def test_strip_and_compare(tmp_path: Path) -> None:
     assert main([str(tmp_path / "b.sql"), str(tmp_path / "p.sql")]) == 1
     (tmp_path / "b.sql").write_text("a\nb\n")
     assert main([str(tmp_path / "b.sql"), str(tmp_path / "p.sql")]) == 1
+
+
+INGEST_COPIES = ("bootstrap-ingest.sql", "bootstrap-ingest-verify.sql", "bootstrap-ingest-rollback.sql")
+
+
+@pytest.mark.parametrize("name", INGEST_COPIES)
+def test_ingest_copies_have_a_ci_header_and_no_ci_block(name: str) -> None:
+    text = (ROOT / "scripts" / "db" / name).read_text()
+    body = strip_ci_additions(text, header_only=True)
+    assert body.startswith("-- =====")
+    assert "CI-ONLY" not in text
+    assert not re.search(r"PASSWORD\s+'", text)  # passwords come from psql variables only
+
+
+def test_ingest_setup_touches_only_the_two_ingestion_roles() -> None:
+    text = strip_ci_additions((ROOT / "scripts" / "db" / "bootstrap-ingest.sql").read_text(), header_only=True)
+    body = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("--"))  # statements only
+    created = re.findall(r"^CREATE ROLE (\w+)", body, flags=re.MULTILINE)
+    altered = set(re.findall(r"^ALTER ROLE (\w+)", body, flags=re.MULTILINE))
+    assert created == ["atlas_ingest", "atlas_test_ingest"]
+    assert altered == {"atlas_ingest", "atlas_test_ingest"}
+    assert not re.search(r"\b(SUPERUSER|CREATEDB|CREATEROLE|REPLICATION|BYPASSRLS|ALTER SYSTEM|DROP)\b", body)
+    assert not re.search(r"\bGRANT\b.*\bON (TABLE|ALL TABLES)", body)  # table privileges come from migration 0002
+
+
+def test_header_only_mode(tmp_path: Path) -> None:
+    (tmp_path / "b.sql").write_text("-- ci\n-- END CI HEADER\na\n")
+    (tmp_path / "p.sql").write_text("a\n")
+    assert main([str(tmp_path / "b.sql"), str(tmp_path / "p.sql"), "--header-only"]) == 0
+    (tmp_path / "b.sql").write_text("-- ci\n-- END CI HEADER\na\n-- BEGIN CI-ONLY\nx\n-- END CI-ONLY\n")
+    assert main([str(tmp_path / "b.sql"), str(tmp_path / "p.sql"), "--header-only"]) == 1

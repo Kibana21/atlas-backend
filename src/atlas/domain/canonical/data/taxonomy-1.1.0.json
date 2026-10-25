@@ -1,0 +1,2049 @@
+{
+  "$schema": "urn:atlas:schema:canonical:taxonomy:v1",
+  "taxonomy_version": "1.1.0",
+  "status": "accepted",
+  "source": "ADR-0003, ADR-0008, ADR-0015, ADR-0016, ADR-0017, ADR-0018, ADR-0019 (Accepted 25 Oct 2026); DEC-050, DEC-070; 1.1.0: owner decision U-1 at Gate G2 (25 Oct 2026)",
+  "versioning": {
+    "scheme": "semver",
+    "minor": "adds types, relationship types, pairs, enumeration values, optional attributes, providers, namespaces, mappings",
+    "major": "removes or renames anything, narrows a rule, or makes an attribute required; needs a data migration plan and owner approval",
+    "identity_rule": "entity and relationship IDs never change across taxonomy versions; every version row records the taxonomy version it was validated against"
+  },
+  "enumerations": {
+    "lifecycles": [
+      "active",
+      "deprecated",
+      "retired"
+    ],
+    "record_states": [
+      "present",
+      "removed",
+      "merged"
+    ],
+    "environment_scopes": [
+      "single",
+      "shared",
+      "unknown"
+    ],
+    "environment_kinds": [
+      "dev",
+      "sit",
+      "test",
+      "uat",
+      "preprod",
+      "prod",
+      "dr",
+      "sandbox",
+      "other"
+    ],
+    "deployment_roles": [
+      "primary",
+      "active_secondary",
+      "standby",
+      "unknown"
+    ],
+    "evidence_kinds": [
+      "provider_configuration",
+      "contract",
+      "documentation",
+      "human_assertion",
+      "inferred"
+    ],
+    "trust_states": [
+      "discovered",
+      "documented",
+      "curated",
+      "inferred",
+      "proposed",
+      "stale",
+      "conflicted"
+    ],
+    "verification_states": [
+      "unverified",
+      "verified"
+    ],
+    "completeness_states": [
+      "present",
+      "not_documented",
+      "not_applicable",
+      "unknown_coverage"
+    ],
+    "match_methods": [
+      "provider_id",
+      "approved_alias",
+      "org_key",
+      "steward"
+    ],
+    "change_set_kinds": [
+      "fixture_load",
+      "import",
+      "steward_edit",
+      "merge",
+      "split",
+      "discovery_sync",
+      "migration",
+      "revert"
+    ],
+    "channels": [
+      "fixture_cli",
+      "import",
+      "api",
+      "connector",
+      "migration",
+      "system_job"
+    ],
+    "actor_kinds": [
+      "human",
+      "service",
+      "system"
+    ],
+    "fact_kinds": [
+      "entity",
+      "relationship"
+    ]
+  },
+  "common_attributes": {
+    "all": [
+      "display_name",
+      "lifecycle"
+    ],
+    "physical": [
+      "provider",
+      "native_type"
+    ],
+    "platform_required_for_providers": [
+      "private_cloud",
+      "on_premises",
+      "other"
+    ],
+    "attribute_name_pattern": "^[a-z][a-z0-9_]*$",
+    "forbidden_attribute_name_pattern": "(password|passwd|secret|token|connection_?string|private_?key|access_?key|credential)"
+  },
+  "providers": [
+    {
+      "provider": "azure",
+      "display_name": "Microsoft Azure",
+      "provider_kind": "public_cloud",
+      "requires_platform": false,
+      "note": "first implementation target"
+    },
+    {
+      "provider": "aws",
+      "display_name": "Amazon Web Services",
+      "provider_kind": "public_cloud",
+      "requires_platform": false
+    },
+    {
+      "provider": "gcp",
+      "display_name": "Google Cloud",
+      "provider_kind": "public_cloud",
+      "requires_platform": false
+    },
+    {
+      "provider": "alibaba",
+      "display_name": "Alibaba Cloud",
+      "provider_kind": "public_cloud",
+      "requires_platform": false
+    },
+    {
+      "provider": "oci",
+      "display_name": "Oracle Cloud Infrastructure",
+      "provider_kind": "public_cloud",
+      "requires_platform": false
+    },
+    {
+      "provider": "huawei",
+      "display_name": "Huawei Cloud",
+      "provider_kind": "public_cloud",
+      "requires_platform": false
+    },
+    {
+      "provider": "tencent",
+      "display_name": "Tencent Cloud",
+      "provider_kind": "public_cloud",
+      "requires_platform": false
+    },
+    {
+      "provider": "ibm",
+      "display_name": "IBM Cloud",
+      "provider_kind": "public_cloud",
+      "requires_platform": false
+    },
+    {
+      "provider": "private_cloud",
+      "display_name": "Private cloud",
+      "provider_kind": "private_cloud",
+      "requires_platform": true
+    },
+    {
+      "provider": "on_premises",
+      "display_name": "On-premises infrastructure",
+      "provider_kind": "on_premises",
+      "requires_platform": true
+    },
+    {
+      "provider": "other",
+      "display_name": "Custom or other technology",
+      "provider_kind": "other",
+      "requires_platform": true
+    }
+  ],
+  "categories": [
+    {
+      "category": "scope",
+      "kind": "physical",
+      "description": "Provider account and resource hierarchy"
+    },
+    {
+      "category": "container_cluster",
+      "kind": "physical",
+      "description": "Container orchestration cluster"
+    },
+    {
+      "category": "container_namespace",
+      "kind": "physical",
+      "description": "Namespace inside a cluster"
+    },
+    {
+      "category": "runtime_workload",
+      "kind": "physical",
+      "description": "Deployed runtime unit: container workload, web app, function, service process"
+    },
+    {
+      "category": "compute_host",
+      "kind": "physical",
+      "description": "Virtual machine, instance or physical host"
+    },
+    {
+      "category": "api_gateway",
+      "kind": "physical",
+      "description": "API gateway instance"
+    },
+    {
+      "category": "api_endpoint",
+      "kind": "physical",
+      "description": "An API published on a gateway or platform"
+    },
+    {
+      "category": "messaging_broker",
+      "kind": "physical",
+      "description": "Broker or messaging namespace"
+    },
+    {
+      "category": "messaging_channel",
+      "kind": "physical",
+      "description": "Queue, topic or stream"
+    },
+    {
+      "category": "database_server",
+      "kind": "physical",
+      "description": "Database server or instance hosting databases"
+    },
+    {
+      "category": "data_store",
+      "kind": "physical",
+      "description": "Database, bucket, file share or cache holding data"
+    },
+    {
+      "category": "secret_store",
+      "kind": "physical",
+      "description": "Secret or key store"
+    },
+    {
+      "category": "network",
+      "kind": "physical",
+      "description": "Virtual network"
+    },
+    {
+      "category": "subnet",
+      "kind": "physical",
+      "description": "Subdivision of a virtual network"
+    },
+    {
+      "category": "generic",
+      "kind": "physical",
+      "description": "Not yet categorized"
+    }
+  ],
+  "entity_types": [
+    {
+      "type_key": "core.capability",
+      "kind": "logical",
+      "category": "core.capability",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [
+        "core.capability"
+      ],
+      "self_nesting": true
+    },
+    {
+      "type_key": "core.business_domain",
+      "kind": "logical",
+      "category": "core.business_domain",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [
+        "core.business_domain"
+      ],
+      "self_nesting": true
+    },
+    {
+      "type_key": "core.team",
+      "kind": "logical",
+      "category": "core.team",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [],
+      "self_nesting": false
+    },
+    {
+      "type_key": "core.system",
+      "kind": "logical",
+      "category": "core.system",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [],
+      "self_nesting": false,
+      "description": "Business system made of applications (MOD-01)"
+    },
+    {
+      "type_key": "core.application",
+      "kind": "logical",
+      "category": "core.application",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [
+        "org_key"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [],
+      "self_nesting": false
+    },
+    {
+      "type_key": "core.service",
+      "kind": "logical",
+      "category": "core.service",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [
+        "core.application"
+      ],
+      "self_nesting": false,
+      "description": "Logical service; C4 container"
+    },
+    {
+      "type_key": "core.component",
+      "kind": "logical",
+      "category": "core.component",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [
+        "core.service"
+      ],
+      "self_nesting": false,
+      "description": "C4 component (MOD-01)"
+    },
+    {
+      "type_key": "core.api",
+      "kind": "logical",
+      "category": "core.api",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [
+        "api_version"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [],
+      "self_nesting": false,
+      "description": "Logical API (DEP-01)"
+    },
+    {
+      "type_key": "core.api_operation",
+      "kind": "logical",
+      "category": "core.api_operation",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [
+        "http_method",
+        "path_template"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [],
+      "containment_parents": [
+        "core.api"
+      ],
+      "self_nesting": false
+    },
+    {
+      "type_key": "core.event_channel",
+      "kind": "logical",
+      "category": "core.event_channel",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [
+        "channel_kind"
+      ],
+      "attribute_enums": {
+        "channel_kind": [
+          "queue",
+          "topic"
+        ]
+      },
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [],
+      "self_nesting": false
+    },
+    {
+      "type_key": "core.dataset",
+      "kind": "logical",
+      "category": "core.dataset",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [],
+      "self_nesting": false,
+      "description": "Logical data asset"
+    },
+    {
+      "type_key": "core.environment",
+      "kind": "logical",
+      "category": "core.environment",
+      "provider": null,
+      "environment_scope": "none",
+      "required_attributes": [
+        "environment_kind"
+      ],
+      "attribute_enums": {
+        "environment_kind": "@environment_kinds"
+      },
+      "identity_namespaces": [
+        "org.key"
+      ],
+      "containment_parents": [],
+      "self_nesting": false,
+      "description": "Organization-defined environment; its name and key are the organization's"
+    },
+    {
+      "type_key": "azure.tenant",
+      "kind": "physical",
+      "category": "scope",
+      "provider": "azure",
+      "environment_scope": "none",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.tenant_id"
+      ],
+      "containment_parents": [],
+      "self_nesting": false
+    },
+    {
+      "type_key": "azure.subscription",
+      "kind": "physical",
+      "category": "scope",
+      "provider": "azure",
+      "environment_scope": "optional",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.subscription_id",
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.tenant"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.resources/subscriptions"
+    },
+    {
+      "type_key": "azure.resource_group",
+      "kind": "physical",
+      "category": "scope",
+      "provider": "azure",
+      "environment_scope": "optional",
+      "required_attributes": [
+        "location"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.subscription"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.resources/resourcegroups"
+    },
+    {
+      "type_key": "azure.apim_service",
+      "kind": "physical",
+      "category": "api_gateway",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [
+        "location",
+        "sku"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.resource_group"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.apimanagement/service"
+    },
+    {
+      "type_key": "azure.apim_api",
+      "kind": "physical",
+      "category": "api_endpoint",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [
+        "api_revision"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm",
+        "apim.api"
+      ],
+      "containment_parents": [
+        "azure.apim_service"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.apimanagement/service/apis"
+    },
+    {
+      "type_key": "azure.aks_cluster",
+      "kind": "physical",
+      "category": "container_cluster",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [
+        "location",
+        "kubernetes_version"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.resource_group"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.containerservice/managedclusters"
+    },
+    {
+      "type_key": "k8s.namespace",
+      "kind": "physical",
+      "category": "container_namespace",
+      "provider": "@cluster",
+      "environment_scope": "required",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "k8s.uid"
+      ],
+      "containment_parents": [
+        "azure.aks_cluster",
+        "infra.cluster"
+      ],
+      "self_nesting": false,
+      "description": "Kubernetes namespace on any provider's cluster; provider = its cluster's provider"
+    },
+    {
+      "type_key": "k8s.workload",
+      "kind": "physical",
+      "category": "runtime_workload",
+      "provider": "@cluster",
+      "environment_scope": "required",
+      "required_attributes": [
+        "workload_kind"
+      ],
+      "attribute_enums": {
+        "workload_kind": [
+          "Deployment",
+          "StatefulSet",
+          "DaemonSet",
+          "CronJob",
+          "Job",
+          "other"
+        ]
+      },
+      "identity_namespaces": [
+        "k8s.uid"
+      ],
+      "containment_parents": [
+        "k8s.namespace"
+      ],
+      "self_nesting": false
+    },
+    {
+      "type_key": "azure.app_service",
+      "kind": "physical",
+      "category": "runtime_workload",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [
+        "location",
+        "site_kind"
+      ],
+      "attribute_enums": {
+        "site_kind": [
+          "app",
+          "functionapp",
+          "other"
+        ]
+      },
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.resource_group"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.web/sites"
+    },
+    {
+      "type_key": "azure.service_bus_namespace",
+      "kind": "physical",
+      "category": "messaging_broker",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [
+        "location",
+        "sku"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.resource_group"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.servicebus/namespaces"
+    },
+    {
+      "type_key": "azure.service_bus_queue",
+      "kind": "physical",
+      "category": "messaging_channel",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.service_bus_namespace"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.servicebus/namespaces/queues"
+    },
+    {
+      "type_key": "azure.service_bus_topic",
+      "kind": "physical",
+      "category": "messaging_channel",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.service_bus_namespace"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.servicebus/namespaces/topics"
+    },
+    {
+      "type_key": "azure.sql_server",
+      "kind": "physical",
+      "category": "database_server",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [
+        "location"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.resource_group"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.sql/servers"
+    },
+    {
+      "type_key": "azure.sql_database",
+      "kind": "physical",
+      "category": "data_store",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.sql_server"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.sql/servers/databases"
+    },
+    {
+      "type_key": "azure.storage_account",
+      "kind": "physical",
+      "category": "data_store",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [
+        "location",
+        "sku"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.resource_group"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.storage/storageaccounts"
+    },
+    {
+      "type_key": "azure.key_vault",
+      "kind": "physical",
+      "category": "secret_store",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [
+        "location"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.resource_group"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.keyvault/vaults"
+    },
+    {
+      "type_key": "azure.vnet",
+      "kind": "physical",
+      "category": "network",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [
+        "location"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.resource_group"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.network/virtualnetworks"
+    },
+    {
+      "type_key": "azure.subnet",
+      "kind": "physical",
+      "category": "subnet",
+      "provider": "azure",
+      "environment_scope": "required",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "azure.arm"
+      ],
+      "containment_parents": [
+        "azure.vnet"
+      ],
+      "self_nesting": false,
+      "native_type": "microsoft.network/virtualnetworks/subnets"
+    },
+    {
+      "type_key": "infra.scope",
+      "kind": "physical",
+      "category": "scope",
+      "provider": "any",
+      "environment_scope": "optional",
+      "required_attributes": [
+        "scope_kind"
+      ],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "provider_namespace",
+        "source.*"
+      ],
+      "containment_parents": [
+        "infra.scope"
+      ],
+      "self_nesting": true,
+      "description": "Provider account or hierarchy node (ADR-0019 §4); nesting per provider scope rules"
+    },
+    {
+      "type_key": "infra.compute",
+      "kind": "physical",
+      "category": "compute_host",
+      "provider": "any",
+      "environment_scope": "required",
+      "required_attributes": [
+        "compute_kind",
+        "location"
+      ],
+      "attribute_enums": {
+        "compute_kind": [
+          "vm",
+          "bare_metal",
+          "physical",
+          "other"
+        ]
+      },
+      "identity_namespaces": [
+        "provider_namespace",
+        "source.*"
+      ],
+      "containment_parents": [
+        "category:scope"
+      ],
+      "self_nesting": false
+    },
+    {
+      "type_key": "infra.cluster",
+      "kind": "physical",
+      "category": "container_cluster",
+      "provider": "any",
+      "environment_scope": "required",
+      "required_attributes": [
+        "cluster_kind",
+        "location"
+      ],
+      "attribute_enums": {
+        "cluster_kind": [
+          "kubernetes",
+          "ecs",
+          "other"
+        ]
+      },
+      "identity_namespaces": [
+        "provider_namespace",
+        "source.*"
+      ],
+      "containment_parents": [
+        "category:scope"
+      ],
+      "self_nesting": false
+    },
+    {
+      "type_key": "infra.workload",
+      "kind": "physical",
+      "category": "runtime_workload",
+      "provider": "any",
+      "environment_scope": "required",
+      "required_attributes": [
+        "workload_kind"
+      ],
+      "attribute_enums": {
+        "workload_kind": [
+          "function",
+          "container_service",
+          "process",
+          "other"
+        ]
+      },
+      "identity_namespaces": [
+        "provider_namespace",
+        "source.*"
+      ],
+      "containment_parents": [
+        "category:scope",
+        "infra.compute",
+        "infra.cluster"
+      ],
+      "self_nesting": false
+    },
+    {
+      "type_key": "infra.api_endpoint",
+      "kind": "physical",
+      "category": "api_endpoint",
+      "provider": "any",
+      "environment_scope": "required",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "provider_namespace",
+        "source.*"
+      ],
+      "containment_parents": [
+        "category:scope",
+        "infra.resource"
+      ],
+      "self_nesting": false
+    },
+    {
+      "type_key": "infra.messaging_channel",
+      "kind": "physical",
+      "category": "messaging_channel",
+      "provider": "any",
+      "environment_scope": "required",
+      "required_attributes": [
+        "channel_kind"
+      ],
+      "attribute_enums": {
+        "channel_kind": [
+          "queue",
+          "topic",
+          "stream"
+        ]
+      },
+      "identity_namespaces": [
+        "provider_namespace",
+        "source.*"
+      ],
+      "containment_parents": [
+        "category:scope",
+        "infra.resource"
+      ],
+      "self_nesting": false
+    },
+    {
+      "type_key": "infra.data_store",
+      "kind": "physical",
+      "category": "data_store",
+      "provider": "any",
+      "environment_scope": "required",
+      "required_attributes": [
+        "store_kind"
+      ],
+      "attribute_enums": {
+        "store_kind": [
+          "relational_db",
+          "nosql_db",
+          "object_storage",
+          "file_storage",
+          "cache",
+          "other"
+        ]
+      },
+      "identity_namespaces": [
+        "provider_namespace",
+        "source.*"
+      ],
+      "containment_parents": [
+        "category:scope",
+        "infra.compute",
+        "infra.resource"
+      ],
+      "self_nesting": false
+    },
+    {
+      "type_key": "infra.resource",
+      "kind": "physical",
+      "category": "generic",
+      "provider": "any",
+      "environment_scope": "optional",
+      "required_attributes": [],
+      "attribute_enums": {},
+      "identity_namespaces": [
+        "provider_namespace",
+        "source.*"
+      ],
+      "containment_parents": [
+        "category:physical"
+      ],
+      "self_nesting": true,
+      "description": "Fallback for any provider (E04); parent only where the provider's native hierarchy shows it"
+    }
+  ],
+  "relationship_types": [
+    {
+      "rel_type": "CONTAINS",
+      "status": "active",
+      "description": "Hierarchical containment (composition): child is part of exactly one parent; resource or logical family, never mixed; physical within one provider",
+      "cardinality": "one_parent",
+      "pairs": [
+        {
+          "from": [
+            "@containment_parents"
+          ],
+          "to": [
+            "@containment_children"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "provider_configuration",
+        "documentation",
+        "human_assertion",
+        "contract"
+      ],
+      "cross_environment_allowed": false,
+      "logical_only": false
+    },
+    {
+      "rel_type": "MEMBER_OF",
+      "status": "active",
+      "description": "Logical membership (grouping), many-to-many; acyclic by construction",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.application"
+          ],
+          "to": [
+            "core.system",
+            "core.business_domain"
+          ]
+        },
+        {
+          "from": [
+            "core.system"
+          ],
+          "to": [
+            "core.business_domain"
+          ]
+        },
+        {
+          "from": [
+            "core.api",
+            "core.event_channel",
+            "core.dataset"
+          ],
+          "to": [
+            "core.business_domain"
+          ]
+        },
+        {
+          "from": [
+            "category:physical"
+          ],
+          "to": [
+            "core.environment"
+          ],
+          "when_from": {
+            "environment_scope": "shared"
+          }
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "documentation",
+        "human_assertion",
+        "provider_configuration"
+      ],
+      "cross_environment_allowed": null,
+      "logical_only": false
+    },
+    {
+      "rel_type": "OWNS",
+      "status": "active",
+      "description": "Stewardship: team owns an entity (INV-05, many-to-many)",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.team"
+          ],
+          "to": [
+            "*"
+          ],
+          "to_exclude": [
+            "core.team",
+            "core.environment"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [
+        "ownership_role"
+      ],
+      "attribute_enums": {
+        "ownership_role": [
+          "accountable",
+          "technical",
+          "data_steward"
+        ]
+      },
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "human_assertion",
+        "documentation"
+      ],
+      "cross_environment_allowed": null,
+      "logical_only": false
+    },
+    {
+      "rel_type": "SUPPORTS_CAPABILITY",
+      "status": "active",
+      "description": "Business support (BCM-03 direct or enabling)",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.system",
+            "core.application",
+            "core.service",
+            "core.component"
+          ],
+          "to": [
+            "core.capability"
+          ]
+        }
+      ],
+      "required_attributes": [
+        "support_kind"
+      ],
+      "optional_attributes": [],
+      "attribute_enums": {
+        "support_kind": [
+          "direct",
+          "enabling"
+        ]
+      },
+      "discriminator": "support_kind",
+      "allowed_evidence_kinds": [
+        "human_assertion",
+        "documentation"
+      ],
+      "cross_environment_allowed": null,
+      "logical_only": true
+    },
+    {
+      "rel_type": "EXPOSES_API",
+      "status": "active",
+      "description": "API provider",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.application",
+            "core.service",
+            "core.component"
+          ],
+          "to": [
+            "core.api"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "contract",
+        "documentation",
+        "human_assertion",
+        "provider_configuration"
+      ],
+      "cross_environment_allowed": null,
+      "logical_only": true
+    },
+    {
+      "rel_type": "CONSUMES_API",
+      "status": "active",
+      "description": "Declared or configured API consumption",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.application",
+            "core.service",
+            "core.component",
+            "category:runtime_workload",
+            "category:compute_host"
+          ],
+          "to": [
+            "core.api",
+            "category:api_endpoint"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "contract",
+        "provider_configuration",
+        "documentation",
+        "human_assertion"
+      ],
+      "cross_environment_allowed": true,
+      "logical_only": false
+    },
+    {
+      "rel_type": "PUBLISHES_TO",
+      "status": "active",
+      "description": "Producer to channel",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.application",
+            "core.service",
+            "core.component",
+            "category:runtime_workload",
+            "category:compute_host"
+          ],
+          "to": [
+            "core.event_channel",
+            "category:messaging_channel"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "provider_configuration",
+        "contract",
+        "documentation",
+        "human_assertion"
+      ],
+      "cross_environment_allowed": true,
+      "logical_only": false
+    },
+    {
+      "rel_type": "SUBSCRIBES_TO",
+      "status": "active",
+      "description": "Consumer of a channel (receiving from a queue counts)",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.application",
+            "core.service",
+            "core.component",
+            "category:runtime_workload",
+            "category:compute_host"
+          ],
+          "to": [
+            "core.event_channel",
+            "category:messaging_channel"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [
+        "subscription_name"
+      ],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "provider_configuration",
+        "contract",
+        "documentation",
+        "human_assertion"
+      ],
+      "cross_environment_allowed": true,
+      "logical_only": false
+    },
+    {
+      "rel_type": "READS_FROM",
+      "status": "active",
+      "description": "Reads from a data store; edge points actor to store (dependency direction)",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.application",
+            "core.service",
+            "core.component",
+            "category:runtime_workload",
+            "category:compute_host"
+          ],
+          "to": [
+            "core.dataset",
+            "category:data_store"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "provider_configuration",
+        "contract",
+        "documentation",
+        "human_assertion"
+      ],
+      "cross_environment_allowed": true,
+      "logical_only": false
+    },
+    {
+      "rel_type": "WRITES_TO",
+      "status": "active",
+      "description": "Writes to a data store; edge points actor to store (dependency direction)",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.application",
+            "core.service",
+            "core.component",
+            "category:runtime_workload",
+            "category:compute_host"
+          ],
+          "to": [
+            "core.dataset",
+            "category:data_store"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "provider_configuration",
+        "contract",
+        "documentation",
+        "human_assertion"
+      ],
+      "cross_environment_allowed": true,
+      "logical_only": false
+    },
+    {
+      "rel_type": "STORES_IN",
+      "status": "active",
+      "description": "Uses a data store; access direction not established by the evidence; never converted automatically",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.application",
+            "core.service",
+            "core.component",
+            "category:runtime_workload",
+            "category:compute_host"
+          ],
+          "to": [
+            "core.dataset",
+            "category:data_store"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "documentation",
+        "human_assertion",
+        "provider_configuration"
+      ],
+      "cross_environment_allowed": true,
+      "logical_only": false
+    },
+    {
+      "rel_type": "DEPLOYED_AS",
+      "status": "active",
+      "description": "Logical to physical deployment (MOD-03 one-to-many)",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.application",
+            "core.service"
+          ],
+          "to": [
+            "category:runtime_workload",
+            "category:compute_host"
+          ]
+        },
+        {
+          "from": [
+            "core.api"
+          ],
+          "to": [
+            "category:api_endpoint"
+          ]
+        },
+        {
+          "from": [
+            "core.event_channel"
+          ],
+          "to": [
+            "category:messaging_channel"
+          ]
+        },
+        {
+          "from": [
+            "core.dataset"
+          ],
+          "to": [
+            "category:data_store"
+          ]
+        }
+      ],
+      "required_attributes": [],
+      "optional_attributes": [
+        "deployment_role"
+      ],
+      "attribute_enums": {
+        "deployment_role": "@deployment_roles"
+      },
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "provider_configuration",
+        "human_assertion",
+        "documentation",
+        "contract"
+      ],
+      "cross_environment_allowed": false,
+      "logical_only": false
+    },
+    {
+      "rel_type": "CONNECTS_TO",
+      "status": "active",
+      "description": "Explicitly configured infrastructure connectivity; never inferred from traffic",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "category:network"
+          ],
+          "to": [
+            "category:network"
+          ],
+          "connectivity_kinds": [
+            "network_peering",
+            "dedicated_link"
+          ]
+        },
+        {
+          "from": [
+            "category:runtime_workload",
+            "category:compute_host",
+            "category:container_cluster"
+          ],
+          "to": [
+            "category:subnet"
+          ],
+          "connectivity_kinds": [
+            "subnet_placement",
+            "network_integration"
+          ]
+        },
+        {
+          "from": [
+            "category:api_gateway",
+            "category:api_endpoint"
+          ],
+          "to": [
+            "category:runtime_workload",
+            "category:compute_host"
+          ],
+          "connectivity_kinds": [
+            "gateway_backend"
+          ]
+        },
+        {
+          "from": [
+            "category:runtime_workload",
+            "category:compute_host",
+            "category:container_cluster",
+            "category:api_gateway",
+            "category:api_endpoint",
+            "category:network",
+            "category:subnet"
+          ],
+          "to": [
+            "category:physical"
+          ],
+          "connectivity_kinds": [
+            "private_link",
+            "service_endpoint",
+            "configured_endpoint"
+          ]
+        }
+      ],
+      "required_attributes": [
+        "connectivity_kind"
+      ],
+      "optional_attributes": [
+        "native_kind"
+      ],
+      "attribute_enums": {},
+      "discriminator": "connectivity_kind",
+      "allowed_evidence_kinds": [
+        "provider_configuration",
+        "human_assertion"
+      ],
+      "cross_environment_allowed": true,
+      "logical_only": false
+    },
+    {
+      "rel_type": "DEPENDS_ON",
+      "status": "active",
+      "description": "Curated dependency between logical things; never produced by connectors, imports of other types or inference",
+      "cardinality": "many_to_many",
+      "pairs": [
+        {
+          "from": [
+            "core.system",
+            "core.application",
+            "core.service",
+            "core.component"
+          ],
+          "to": [
+            "core.system",
+            "core.application",
+            "core.service",
+            "core.component",
+            "core.api",
+            "core.dataset"
+          ]
+        }
+      ],
+      "required_attributes": [
+        "rationale"
+      ],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [
+        "human_assertion",
+        "documentation"
+      ],
+      "cross_environment_allowed": null,
+      "logical_only": true
+    },
+    {
+      "rel_type": "PROTECTS",
+      "status": "reserved",
+      "description": "Security control protects resource; no control types in v1",
+      "cardinality": "many_to_many",
+      "pairs": [],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [],
+      "cross_environment_allowed": false,
+      "logical_only": false
+    },
+    {
+      "rel_type": "DECIDED_BY",
+      "status": "reserved",
+      "description": "Design rationale link to an ADR (Phase 3)",
+      "cardinality": "many_to_many",
+      "pairs": [],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [],
+      "cross_environment_allowed": false,
+      "logical_only": false
+    },
+    {
+      "rel_type": "PRODUCES_DATA",
+      "status": "reserved",
+      "description": "Dataset lineage (Phase 4)",
+      "cardinality": "many_to_many",
+      "pairs": [],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [],
+      "cross_environment_allowed": false,
+      "logical_only": false
+    },
+    {
+      "rel_type": "CONSUMES_DATA",
+      "status": "reserved",
+      "description": "Dataset lineage (Phase 4)",
+      "cardinality": "many_to_many",
+      "pairs": [],
+      "required_attributes": [],
+      "optional_attributes": [],
+      "attribute_enums": {},
+      "discriminator": null,
+      "allowed_evidence_kinds": [],
+      "cross_environment_allowed": false,
+      "logical_only": false
+    }
+  ],
+  "provider_scope_rules": {
+    "aws": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "organization",
+          "parents": []
+        },
+        {
+          "scope_kind": "organizational_unit",
+          "parents": [
+            "organization",
+            "organizational_unit"
+          ]
+        },
+        {
+          "scope_kind": "account",
+          "parents": [
+            "organization",
+            "organizational_unit"
+          ]
+        }
+      ]
+    },
+    "gcp": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "organization",
+          "parents": []
+        },
+        {
+          "scope_kind": "folder",
+          "parents": [
+            "organization",
+            "folder"
+          ]
+        },
+        {
+          "scope_kind": "project",
+          "parents": [
+            "organization",
+            "folder"
+          ]
+        }
+      ]
+    },
+    "alibaba": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "account",
+          "parents": []
+        },
+        {
+          "scope_kind": "resource_group",
+          "parents": [
+            "account"
+          ]
+        }
+      ]
+    },
+    "oci": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "tenancy",
+          "parents": []
+        },
+        {
+          "scope_kind": "compartment",
+          "parents": [
+            "tenancy",
+            "compartment"
+          ]
+        }
+      ]
+    },
+    "huawei": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "account",
+          "parents": []
+        },
+        {
+          "scope_kind": "enterprise_project",
+          "parents": [
+            "account"
+          ]
+        },
+        {
+          "scope_kind": "project",
+          "parents": [
+            "account",
+            "enterprise_project"
+          ]
+        }
+      ]
+    },
+    "tencent": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "account",
+          "parents": []
+        },
+        {
+          "scope_kind": "project",
+          "parents": [
+            "account"
+          ]
+        }
+      ]
+    },
+    "ibm": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "enterprise",
+          "parents": []
+        },
+        {
+          "scope_kind": "account_group",
+          "parents": [
+            "enterprise",
+            "account_group"
+          ]
+        },
+        {
+          "scope_kind": "account",
+          "parents": [
+            "enterprise",
+            "account_group"
+          ]
+        },
+        {
+          "scope_kind": "resource_group",
+          "parents": [
+            "account"
+          ]
+        }
+      ]
+    },
+    "private_cloud": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "platform_instance",
+          "parents": []
+        },
+        {
+          "scope_kind": "tenant",
+          "parents": [
+            "platform_instance"
+          ]
+        },
+        {
+          "scope_kind": "project",
+          "parents": [
+            "platform_instance",
+            "tenant"
+          ]
+        }
+      ]
+    },
+    "on_premises": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "site",
+          "parents": []
+        },
+        {
+          "scope_kind": "zone",
+          "parents": [
+            "site",
+            "zone"
+          ]
+        }
+      ]
+    },
+    "other": {
+      "review_status": "intended_shape",
+      "scope_kinds": [
+        {
+          "scope_kind": "platform_instance",
+          "parents": [
+            "platform_instance"
+          ]
+        }
+      ]
+    }
+  },
+  "native_type_mappings": {
+    "azure": [
+      {
+        "native_type": "microsoft.compute/virtualmachines",
+        "category": "compute_host"
+      },
+      {
+        "native_type": "microsoft.documentdb/databaseaccounts",
+        "category": "data_store"
+      },
+      {
+        "native_type": "microsoft.eventhub/namespaces/eventhubs",
+        "category": "messaging_channel"
+      },
+      {
+        "native_type": "microsoft.app/containerapps",
+        "category": "runtime_workload"
+      }
+    ],
+    "aws": [
+      {
+        "native_type": "AWS::ApiGateway::RestApi",
+        "category": "api_endpoint"
+      },
+      {
+        "native_type": "AWS::ECS::Service",
+        "category": "runtime_workload"
+      },
+      {
+        "native_type": "AWS::Lambda::Function",
+        "category": "runtime_workload"
+      }
+    ],
+    "gcp": [
+      {
+        "native_type": "pubsub.googleapis.com/Topic",
+        "category": "messaging_channel"
+      }
+    ],
+    "alibaba": [
+      {
+        "native_type": "ACS::ECS::Instance",
+        "category": "compute_host"
+      }
+    ]
+  },
+  "identity_namespaces": [
+    {
+      "namespace": "azure.arm",
+      "provider": "azure",
+      "status": "implemented",
+      "normalization_rule": "arm-1",
+      "case_rule": "fold",
+      "format": "Azure Resource ID",
+      "uniqueness_scope": "subscription or tenant-level path"
+    },
+    {
+      "namespace": "azure.tenant_id",
+      "provider": "azure",
+      "status": "implemented",
+      "normalization_rule": "guid-1",
+      "case_rule": "guid",
+      "format": "Entra tenant GUID",
+      "uniqueness_scope": "global"
+    },
+    {
+      "namespace": "azure.subscription_id",
+      "provider": "azure",
+      "status": "implemented",
+      "normalization_rule": "guid-1",
+      "case_rule": "guid",
+      "format": "Subscription GUID",
+      "uniqueness_scope": "global"
+    },
+    {
+      "namespace": "apim.api",
+      "provider": "azure",
+      "status": "implemented",
+      "normalization_rule": "apim-api-1",
+      "case_rule": "arm_part_folded",
+      "format": "{APIM service azure.arm key}#api:{apiId};rev={revision}",
+      "uniqueness_scope": "APIM service"
+    },
+    {
+      "namespace": "apim.operation",
+      "provider": "azure",
+      "status": "reserved",
+      "normalization_rule": null,
+      "case_rule": null,
+      "format": "{apim.api key}#op:{operationId}",
+      "uniqueness_scope": "API"
+    },
+    {
+      "namespace": "aws.arn",
+      "provider": "aws",
+      "status": "validation_only",
+      "normalization_rule": "preserve-1",
+      "case_rule": "preserve",
+      "format": "arn:{partition}:{service}:{region}:{account}:{resource}",
+      "uniqueness_scope": "partition, account, region",
+      "pattern": "^arn:[a-z][a-z0-9-]*:[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:\\S+$"
+    },
+    {
+      "namespace": "aws.account",
+      "provider": "aws",
+      "status": "validation_only",
+      "normalization_rule": "preserve-1",
+      "case_rule": "preserve",
+      "format": "{partition}:{12-digit account ID}",
+      "uniqueness_scope": "partition",
+      "pattern": "^[a-z][a-z0-9-]*:[0-9]{12}$"
+    },
+    {
+      "namespace": "gcp.resource_name",
+      "provider": "gcp",
+      "status": "validation_only",
+      "normalization_rule": "preserve-1",
+      "case_rule": "preserve",
+      "format": "//{service}.googleapis.com/{relative resource name}",
+      "uniqueness_scope": "embedded project, folder or organization path",
+      "pattern": "^//[a-z0-9-]+(\\.[a-z0-9-]+)*\\.googleapis\\.com/\\S+$"
+    },
+    {
+      "namespace": "alibaba.arn",
+      "provider": "alibaba",
+      "status": "validation_only",
+      "normalization_rule": "preserve-1",
+      "case_rule": "preserve",
+      "format": "acs:{service}:{region}:{account}:{resource}",
+      "uniqueness_scope": "account, region",
+      "pattern": "^acs:[a-z0-9-]+:[a-z0-9-]*:[0-9]*:\\S+$"
+    },
+    {
+      "namespace": "oci.ocid",
+      "provider": "oci",
+      "status": "validation_only",
+      "normalization_rule": "preserve-1",
+      "case_rule": "preserve",
+      "format": "ocid1.{resource type}.{realm}.{region or empty}.{unique ID}",
+      "uniqueness_scope": "realm",
+      "pattern": "^ocid1\\.[a-z0-9_]+\\.[a-z0-9]+\\.[a-z0-9-]*\\.[a-z0-9.]+$"
+    },
+    {
+      "namespace": "huawei.resource",
+      "provider": "huawei",
+      "status": "planned",
+      "normalization_rule": null,
+      "case_rule": "preserve",
+      "format": "{account or project ID}:{region}:{service}:{resource type}:{resource ID}",
+      "uniqueness_scope": "project, region"
+    },
+    {
+      "namespace": "tencent.qcs",
+      "provider": "tencent",
+      "status": "planned",
+      "normalization_rule": null,
+      "case_rule": "preserve",
+      "format": "qcs::{service}:{region}:uin/{account}:{resource type}/{resource ID}",
+      "uniqueness_scope": "account, region"
+    },
+    {
+      "namespace": "ibm.crn",
+      "provider": "ibm",
+      "status": "planned",
+      "normalization_rule": null,
+      "case_rule": "preserve",
+      "format": "crn:v1:...",
+      "uniqueness_scope": "account, location"
+    },
+    {
+      "namespace": "k8s.uid",
+      "provider": "@cluster",
+      "status": "implemented",
+      "normalization_rule": "k8s-uid-1",
+      "case_rule": "uid_lower",
+      "format": "{cluster namespace}:{cluster normalized key}#{metadata.uid}",
+      "uniqueness_scope": "cluster"
+    },
+    {
+      "namespace": "org.key",
+      "provider": null,
+      "status": "implemented",
+      "normalization_rule": "org-key-1",
+      "case_rule": "compare_insensitive",
+      "format": "organization key, e.g. APP-0042",
+      "uniqueness_scope": "Atlas organization"
+    },
+    {
+      "namespace": "source.*",
+      "provider": null,
+      "status": "implemented",
+      "normalization_rule": "source-1",
+      "case_rule": "preserve",
+      "format": "stable key from a registered source (CMDB, private-cloud platform, custom technology, import file)",
+      "uniqueness_scope": "that source",
+      "pattern": "^\\S(.*\\S)?$"
+    }
+  ],
+  "actor_namespaces": [
+    {
+      "namespace": "oidc",
+      "actor_kind": "human",
+      "key_format": "{issuer}|{subject} from a validated token",
+      "pattern": "^https://\\S+\\|\\S+$"
+    },
+    {
+      "namespace": "atlas.service",
+      "actor_kind": "service",
+      "key_format": "service name, e.g. fixture-loader, import-worker, connector.<name>",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9-]+)*$"
+    },
+    {
+      "namespace": "atlas.system",
+      "actor_kind": "system",
+      "key_format": "system process, e.g. migration, revert",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9-]+)*$"
+    }
+  ],
+  "retyping": {
+    "automatic": [
+      "infra.* -> provider-specific type of the same provider whose fixed native_type equals the entity's native_type",
+      "infra.resource -> the neutral type of the category that the entity's taxonomy version maps its native_type to"
+    ],
+    "otherwise": "steward_edit or migration change set"
+  }
+}

@@ -78,6 +78,32 @@ def migrated(alembic_config: Config) -> None:
     command.upgrade(alembic_config, "head")
 
 
+@pytest.fixture(scope="session")
+def ingest_url(settings: Settings) -> str:
+    """The ingestion connection (ATLAS-002): the ingestion role, or in the single-user model the one account."""
+    url = settings.ingestion_url
+    if url is None or settings.ingestion_role is None:
+        pytest.fail("ATLAS_INGEST_DATABASE_URL / ATLAS_DB_INGEST_ROLE not set (separated model) and not single-user")
+    return url
+
+
+SINGLE_USER_SKIP = (
+    "single-user model (owner decision, 25 Oct 2026): database role separation is not configured locally; "
+    "CI's separated-roles run verifies it"
+)
+
+
+@pytest.fixture(autouse=True)
+def _role_separation_only(request: pytest.FixtureRequest, settings: Settings) -> None:
+    if request.node.get_closest_marker("role_separation") and settings.db_role_model == "single":
+        pytest.skip(SINGLE_USER_SKIP)
+
+
+def tx_connect(url: str) -> psycopg.Connection[tuple[Any, ...]]:
+    """A non-autocommit connection: tests wrap their writes in ``transaction(force_rollback=True)``."""
+    return psycopg.connect(**connect_kwargs(url))
+
+
 def _inventory(settings: Settings) -> tuple[Any, ...]:
     with connect(settings.database_url) as conn:
         databases = conn.execute(

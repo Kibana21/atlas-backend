@@ -13,7 +13,7 @@ ATLAS-001 Checkpoints 2–5 are merged:
 - CP4 (B-13…B-17): Atlas-scoped Redis client; `/health/ready` (database + Redis), so the full contract conforms and `contract-pending.yaml` is empty; Taskiq broker, `diagnostics.ping`, worker round trip, Redis safety check, `make worker`/`worker-smoke`; CI Redis service.
 - CP5 (B-18…B-25): contract drills and response-body validation against the pinned contract (`make contract`); `api`/`worker` Dockerfile (non-root, digest-pinned, Debian libpq); CI `images` job and dedicated secret scan; full README.
 
-The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). **ATLAS-001 is Accepted** (owner, 24 Oct 2026; release `v0.1.0` = `585f3f5`). ATLAS-002 (Canonical Graph Foundation) is approved in principle: CP0 fixes A001-DEF-01 (Redis readiness after an outage); **no canonical graph code before the owner confirms the CP1 decisions**. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/`.
+The four Atlas roles and `atlas_test` exist on the local server (P-03 applied). **ATLAS-001 is Accepted** (owner, 24 Oct 2026; release `v0.1.0` = `585f3f5`). ATLAS-002 (Canonical Graph Foundation): CP0 done; CP1/CP2 decisions and contracts accepted (G1, G2); **CP3 authorized** (canonical store: migration `0002_canonical_graph`, `atlas.domain.canonical`, `atlas.persistence.canonical`). **Local database account (owner decision, 25 Oct 2026):** local development and integration tests use one existing account, `atlas_db_user`, for every role (`ATLAS_DB_ROLE_MODEL=single`, allowed only for `local`/`test`). It is a PostgreSQL **superuser**, so locally the database enforces structure (keys, FKs, `CHECK`s, the two triggers) but no privilege separation; organization isolation and domain validation stay in the application. The six-role model (DEC-044, ingestion roles from the G3-R scripts) is the documented hardening option, and CI keeps verifying it alongside a single-user run. Migration 0002 runs against the local `atlas_db` only with the owner's separate approval. Implement only approved task scope. Progress and evidence live in `atlas-specs` `features/`.
 
 ## Commands
 
@@ -30,11 +30,11 @@ make worker-smoke       # with make worker running: enqueue ping, await marker, 
 make images             # build + scan (hadolint, Trivy) + hardened runtime check of the api/worker images
 make secret-scan        # dedicated Trivy secret scan of tracked files
 make doctor             # read-only preflight of local PostgreSQL/Redis (SNAPSHOT=file for an inventory)
-make specs              # only the pinned-specs extraction + specs.lock validation
+make specs              # pinned-specs extraction (contracts, tools, canonical test data) + specs.lock validation (RELEASE=1: release tag)
 make export-openapi     # build/openapi.json
 ```
 
-CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`, `contract`, `security`, `integration` and `images`. They run on every PR and on push to `main`, and are never skipped. CI **never** connects to local PostgreSQL/Redis: `integration` uses its own digest-pinned `postgres:15` (scram authentication) and `redis:7.4` services, bootstrapped by `scripts/db/bootstrap.sql` (the approved proposal + one CI-only block, drift-checked).
+CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`, `contract`, `security`, `integration` and `images`. They run on every PR and on push to `main`, and are never skipped. CI **never** connects to local PostgreSQL/Redis: `integration` uses its own digest-pinned `postgres:15` (scram authentication) and `redis:7.4` services, bootstrapped by `scripts/db/bootstrap.sql` (the approved proposal + one CI-only block, drift-checked) and `scripts/db/bootstrap-ingest*.sql` (verbatim copies of the G3-R setup, verification and rollback scripts, drift-checked; the job ends with a rollback drill), then a single-user leg with a CI-only superuser `atlas_db_user`, as on the local server.
 
 ## Workflow and approval boundaries
 
@@ -66,7 +66,7 @@ CI (`.github/workflows/backend-ci.yml`) has the required checks `static`, `unit`
   - Never change PostgreSQL authentication, roles, databases or configuration.
   - Never stop or restart them.
   - No Docker-based PostgreSQL and no PostgreSQL upgrade.
-  - Atlas is limited to `atlas_db`/`atlas_test`, the four `atlas_*` roles, and Redis DB 10 (local) / 11 (test) with `atlas:local:`/`atlas:test:` prefixes. The settings guards enforce this.
+  - Atlas is limited to `atlas_db`/`atlas_test`, the account `atlas_db_user` (local single-user model; the four ATLAS-001 `atlas_*` roles stay and are never modified), and Redis DB 10 (local) / 11 (test) with `atlas:local:`/`atlas:test:` prefixes. The settings guards enforce this.
   - Never stop processes Atlas did not start.
 - **Public repo:**
   - Never commit secrets, tokens, credentials, confidential company or customer data, internal topology, or local-machine details (home paths, usernames, other projects' names).

@@ -94,6 +94,7 @@ done
 step "runtime on an isolated network"
 pw() { python3 -c 'import secrets; print(secrets.token_hex(24))'; }
 MIGRATOR_PW="$(pw)"; APP_PW="$(pw)"; TEST_MIGRATOR_PW="$(pw)"; TEST_APP_PW="$(pw)"; SUPER_PW="$(pw)"
+INGEST_PW="$(pw)"; TEST_INGEST_PW="$(pw)"
 docker network create --internal "${RUN}-net" >/dev/null
 docker run -d --name "${RUN}-pg" --network "${RUN}-net" --network-alias postgres \
   -e POSTGRES_PASSWORD="$SUPER_PW" -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
@@ -104,7 +105,9 @@ sleep 2
 docker exec -i -e PGPASSWORD="$SUPER_PW" -e ATLAS_MIGRATOR_PASSWORD="$MIGRATOR_PW" -e ATLAS_APP_PASSWORD="$APP_PW" \
   -e ATLAS_TEST_MIGRATOR_PASSWORD="$TEST_MIGRATOR_PW" -e ATLAS_TEST_APP_PASSWORD="$TEST_APP_PW" "${RUN}-pg" \
   psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 -f - < scripts/db/bootstrap.sql >/dev/null
-echo "bootstrap: four Atlas roles, atlas_db, atlas_test"
+docker exec -i -e PGPASSWORD="$SUPER_PW" -e ATLAS_INGEST_PASSWORD="$INGEST_PW" -e ATLAS_TEST_INGEST_PASSWORD="$TEST_INGEST_PW" \
+  "${RUN}-pg" psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 -f - < scripts/db/bootstrap-ingest.sql >/dev/null
+echo "bootstrap: four Atlas roles, atlas_db, atlas_test; two ingestion roles (ATLAS-002)"
 ENVFILE="$WORK/atlas.env"
 umask 077
 cat > "$ENVFILE" <<EOF
@@ -112,6 +115,7 @@ ATLAS_ENV=local
 ATLAS_DATABASE_URL=postgresql+psycopg://atlas_app:${APP_PW}@postgres:5432/atlas_db
 ATLAS_MIGRATION_DATABASE_URL=postgresql+psycopg://atlas_migrator:${MIGRATOR_PW}@postgres:5432/atlas_db
 ATLAS_DB_APP_ROLE=atlas_app
+ATLAS_DB_INGEST_ROLE=atlas_ingest
 ATLAS_REDIS_URL=redis://redis:6379/10
 ATLAS_REDIS_KEY_PREFIX=atlas:local:
 ATLAS_CORS_ORIGINS=http://localhost:3000
@@ -151,10 +155,10 @@ assert "server" not in {k.lower() for k in h}, "server header exposed"
 s, h, b = get("/api/v1/health/ready")
 assert (s, b) == (200, {"status": "ok", "checks": {"database": "ok", "redis": "ok"}}), (s, b)
 s, h, b = get("/api/v1/diagnostics/build")
-assert s == 200 and b["backend_sha"] == sha and b["db_migration_revision"] == "0001_baseline", b
+assert s == 200 and b["backend_sha"] == sha and b["db_migration_revision"] == "0002_canonical_graph", b
 s, h, b = get("/api/v1/nope")
 assert s == 404 and b["error"]["code"] == "NOT_FOUND" and b["error"]["correlation_id"] == h["X-Correlation-ID"], b
-print(f"http: live 200, ready 200 {{database: ok, redis: ok}}, build sha {sha[:12]} rev 0001_baseline, unknown route 404 envelope")
+print(f"http: live 200, ready 200 {{database: ok, redis: ok}}, build sha {sha[:12]} rev 0002_canonical_graph, unknown route 404 envelope")
 PY
 
 MARKER="img_$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
