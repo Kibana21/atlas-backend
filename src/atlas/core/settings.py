@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     database_url: str = Field(description="Runtime role connection URL (API and worker)")
     migration_database_url: str = Field(description="Migration role connection URL (Alembic only)")
     db_app_role: str = Field(description="Runtime role name; grantee of per-table write grants in migrations")
+    # Ingestion identity (ATLAS-002, DEC-044 as amended). The API never reads the URL: only migrations (the role
+    # name, for canonical grants) and ingestion entry points (CP4) use them. Absent until the owner's gate G3-R.
+    ingest_database_url: str | None = Field(default=None, description="Ingestion role connection URL")
+    db_ingest_role: str | None = Field(default=None, description="Ingestion role name; grantee of canonical writes")
     redis_url: str
     redis_key_prefix: str
     cors_origins: Annotated[tuple[str, ...], NoDecode] = ()
@@ -67,9 +71,11 @@ class Settings(BaseSettings):
             return tuple(origin.strip() for origin in value.split(",") if origin.strip())
         return value
 
-    @field_validator("database_url", "migration_database_url")
+    @field_validator("database_url", "migration_database_url", "ingest_database_url")
     @classmethod
-    def _postgres_url(cls, value: str) -> str:
+    def _postgres_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
         if not value.startswith(("postgresql://", "postgresql+psycopg://")) or not database_name(value):
             raise ValueError("must be a postgresql:// URL that names a database")
         return value
@@ -86,10 +92,12 @@ class Settings(BaseSettings):
     def _environment_guards(self) -> Self:
         problems: list[str] = []
         dbs = {database_name(self.database_url), database_name(self.migration_database_url)}
+        if self.ingest_database_url is not None:
+            dbs.add(database_name(self.ingest_database_url))
         rdb = redis_db(self.redis_url)
         if self.env is Environment.TEST:
             if dbs != {TEST_DATABASE}:
-                problems.append(f"test runs must use database {TEST_DATABASE!r} for both roles, got {sorted(dbs)}")
+                problems.append(f"test runs must use database {TEST_DATABASE!r} for every role, got {sorted(dbs)}")
             if rdb != TEST_REDIS_DB:
                 problems.append(f"test runs must use Redis DB {TEST_REDIS_DB}, got {rdb}")
             if not self.redis_key_prefix.startswith(TEST_PREFIX):
@@ -106,6 +114,12 @@ class Settings(BaseSettings):
                 problems.append(f"local Redis keys must start with {LOCAL_PREFIX!r}")
         if not self.redis_key_prefix.startswith("atlas:") or not self.redis_key_prefix.endswith(":"):
             problems.append("redis_key_prefix must start with 'atlas:' and end with ':'")
+        if self.ingest_database_url is not None:
+            ingest_user = urlsplit(self.ingest_database_url).username
+            if self.db_ingest_role is None or ingest_user != self.db_ingest_role:
+                problems.append("ingest_database_url must connect as db_ingest_role")
+            if ingest_user in {urlsplit(self.database_url).username, urlsplit(self.migration_database_url).username}:
+                problems.append("the ingestion role must differ from the runtime and migration roles")
         if self.diagnostics_enabled and self.env in RESTRICTED_ENVIRONMENTS:
             problems.append(f"diagnostics must not be enabled in {self.env.value}")
         if problems:

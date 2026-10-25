@@ -275,3 +275,68 @@ def test_helpers(tmp_path: Any) -> None:
     assert doctor._test_redis_url(env_test) is None  # only DB 11 is accepted as the test DB
     env_test.write_text("OTHER=1\nATLAS_REDIS_URL=redis://h:6379/11\n")
     assert doctor._test_redis_url(env_test) == "redis://h:6379/11"
+
+
+def _ingest_answers(**overrides: Any) -> dict[str, Any]:
+    ready = {
+        **PG15,
+        "pg_roles WHERE rolname = ANY": [(r,) for r in doctor.ATLAS_ROLES],
+        "pg_roles r WHERE": [("atlas_ingest", True, False, 2), ("atlas_test_ingest", True, False, 2)],
+        "datname = ANY": [("atlas_db",), ("atlas_test",)],
+        "pg_namespace": [(1,)],
+        "role_table_grants": [("entity", "INSERT"), ("entity", "SELECT")],
+        "current_user": [("atlas_app", "atlas_db")],
+    }
+    return {**ready, **overrides}
+
+
+class PrivilegeCursor(RecordingCursor):
+    """has_database_privilege answers by (role, database): CONNECT only to the role's own database."""
+
+    def execute(self, query: str, params: Sequence[object] | None = None) -> None:
+        super().execute(query, params)
+        if "has_database_privilege" in query and params:
+            role, database = str(params[0]), str(params[1])
+            self._last = [(doctor.INGEST_ROLES.get(role) == database, False)]
+
+
+def _patch_privileges(monkeypatch: pytest.MonkeyPatch, answers: dict[str, Any]) -> None:
+    @contextmanager
+    def fake_session(url: str) -> Iterator[PgReader]:
+        yield PgReader(PrivilegeCursor(answers))
+
+    monkeypatch.setattr(doctor, "pg_session", fake_session)
+    monkeypatch.setattr(doctor, "_redis", lambda url: RedisReader(RecordingRedis()))
+
+
+def test_ingest_roles_deferred_before_gate_g3r(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_privileges(monkeypatch, _ingest_answers(**{"pg_roles r WHERE": []}))
+    report = Report()
+    doctor.run(Targets(_local_settings(), "postgresql://localhost:5432/postgres", None), report)
+    assert "DEFERRED postgres.ingest_roles: ingestion roles not created yet" in report.render()
+    assert "g3r-runbook.md" in report.render()
+
+
+def test_ingest_roles_pass_after_gate_g3r(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_privileges(monkeypatch, _ingest_answers())
+    report = Report()
+    snapshot = doctor.run(Targets(_local_settings(), "postgresql://localhost:5432/postgres", None), report)
+    assert "PASS     postgres.ingest_roles: both ingestion roles present" in report.render()
+    assert snapshot["postgres"]["ingest_roles"]["present"] == ["atlas_ingest", "atlas_test_ingest"]
+
+
+def test_ingest_role_problems_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    answers = _ingest_answers(
+        **{
+            "pg_roles r WHERE": [("atlas_ingest", True, True, 5)],
+            "role_table_grants": [("entity", "DELETE")],
+        }
+    )
+    _patch_privileges(monkeypatch, answers)
+    report = Report()
+    doctor.run(Targets(_local_settings(), "postgresql://localhost:5432/postgres", None), report)
+    text = report.render()
+    assert "FAIL     postgres.ingest_roles" in text
+    assert "atlas_test_ingest missing" in text
+    assert "CONNECTION LIMIT 2" in text
+    assert "entity:DELETE" in text

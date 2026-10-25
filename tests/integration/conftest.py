@@ -78,6 +78,19 @@ def migrated(alembic_config: Config) -> None:
     command.upgrade(alembic_config, "head")
 
 
+@pytest.fixture(scope="session")
+def ingest_url(settings: Settings) -> str:
+    """The ingestion role's URL (ATLAS-002). Locally it exists only after the owner's gate G3-R."""
+    if settings.ingest_database_url is None or settings.db_ingest_role is None:
+        pytest.fail("ATLAS_INGEST_DATABASE_URL / ATLAS_DB_INGEST_ROLE not set: the ingestion roles come from gate G3-R")
+    return settings.ingest_database_url
+
+
+def tx_connect(url: str) -> psycopg.Connection[tuple[Any, ...]]:
+    """A non-autocommit connection: tests wrap their writes in ``transaction(force_rollback=True)``."""
+    return psycopg.connect(**connect_kwargs(url))
+
+
 def _inventory(settings: Settings) -> tuple[Any, ...]:
     with connect(settings.database_url) as conn:
         databases = conn.execute(

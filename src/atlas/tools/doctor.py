@@ -37,6 +37,10 @@ from atlas.core.settings import (
 
 ATLAS_ROLES = ("atlas_migrator", "atlas_app", "atlas_test_migrator", "atlas_test_app")
 ATLAS_DATABASES = ("atlas_db", TEST_DATABASE)
+# Ingestion roles (ATLAS-002, DEC-044 as amended): created by the owner at gate G3-R, each for its own database.
+INGEST_ROLES = {"atlas_ingest": "atlas_db", "atlas_test_ingest": TEST_DATABASE}
+G3R_HINT = "owner gate G3-R: atlas-specs features/ATLAS-002-canonical-graph-foundation/proposals/g3r-runbook.md"
+INGEST_TABLE_PRIVILEGES = frozenset({"SELECT", "INSERT"})  # UPDATE only per column (revision_to, last)
 SETUP_HINT = "see atlas-specs features/ATLAS-001-engineering-foundation/proposals/postgres-local-setup.sql (P-03)"
 READ_ONLY_SQL = re.compile(r"^\s*(SELECT|SHOW)\b", re.I)
 MAX_SCAN_ITERATIONS = 10
@@ -152,6 +156,8 @@ def check_postgres(reader: PgReader, report: Report, db_reader: PgReader | None)
             "schema atlas present in atlas_db" if has_schema else f"schema atlas missing in atlas_db -> {SETUP_HINT}",
         )
 
+    facts["ingest_roles"] = check_ingest_roles(reader, report, db_reader)
+
     try:
         rules = reader.rows(
             "SELECT type, database, user_name, auth_method FROM pg_hba_file_rules"
@@ -177,6 +183,45 @@ def check_postgres(reader: PgReader, report: Report, db_reader: PgReader | None)
     else:
         report.add("PASS", "postgres.auth", f"loopback connections for atlas_app use {method!r}")
     return facts
+
+
+def check_ingest_roles(reader: PgReader, report: Report, db_reader: PgReader | None) -> dict[str, Any]:
+    """Presence, attributes and isolation of the ingestion roles; no table privilege beyond the DEC-044 matrix."""
+    rows = reader.rows(
+        "SELECT r.rolname, r.rolcanlogin, r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication "
+        "OR r.rolbypassrls, r.rolconnlimit FROM pg_roles r WHERE r.rolname = ANY(%s) ORDER BY 1",
+        (sorted(INGEST_ROLES),),
+    )
+    present = {name: (login, elevated, limit) for name, login, elevated, limit in rows}
+    if not present:
+        report.add("DEFERRED", "postgres.ingest_roles", f"ingestion roles not created yet -> {G3R_HINT}")
+        return {"present": []}
+    problems = [f"{name} missing" for name in INGEST_ROLES if name not in present]
+    for name, (login, elevated, limit) in sorted(present.items()):
+        if not login or elevated or limit != 2:
+            problems.append(f"{name}: expected LOGIN, no special attributes, CONNECTION LIMIT 2")
+        for database in ATLAS_DATABASES:
+            (connect, temp) = reader.rows(
+                "SELECT has_database_privilege(%s, %s, 'CONNECT'), has_database_privilege(%s, %s, 'TEMP')",
+                (name, database, name, database),
+            )[0]
+            if bool(connect) != (database == INGEST_ROLES[name]) or temp:
+                problems.append(f"{name}: CONNECT must be on {INGEST_ROLES[name]} only, and never TEMP")
+    excess: list[str] = []
+    if db_reader is not None and "atlas_ingest" in present:
+        grants = db_reader.rows(
+            "SELECT table_name, privilege_type FROM information_schema.role_table_grants "
+            "WHERE grantee = 'atlas_ingest' ORDER BY 1, 2"
+        )
+        excess = [f"{t}:{p}" for t, p in grants if p not in INGEST_TABLE_PRIVILEGES]
+        if excess:
+            problems.append(f"atlas_ingest holds privileges beyond the matrix: {', '.join(excess)}")
+    report.add(
+        "FAIL" if problems else "PASS",
+        "postgres.ingest_roles",
+        "; ".join(problems) if problems else "both ingestion roles present, isolated, no excess table privilege",
+    )
+    return {"present": sorted(present), "excess_privileges": excess}
 
 
 def effective_auth_method(rules: Iterable[tuple[Any, ...]], *, database: str, role: str) -> str | None:

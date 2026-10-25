@@ -13,6 +13,7 @@ from tests.conftest import FakeDatabase, make_settings
 
 pytestmark = pytest.mark.unit
 SHA = "0123456789abcdef0123456789abcdef01234567"
+PINNED_SPECS = "49372fb245575f0c2972a3ed8139a53dca6acc5b"  # specs.lock (ATLAS-002 CP3); contract still 0.1.0
 
 
 def test_enabled_returns_build_info() -> None:
@@ -21,7 +22,7 @@ def test_enabled_returns_build_info() -> None:
     body = r.json()
     assert body == {
         "backend_sha": SHA,
-        "specs_sha": "bfe4a09e5d7d260afe15576b4fb9fd7530949370",
+        "specs_sha": PINNED_SPECS,
         "contract_version": "0.1.0",
         "db_migration_revision": None,
         "environment": "test",
@@ -75,7 +76,7 @@ def test_read_specs_lock(tmp_path: Path, content: str, expected: version.SpecsPi
 
 def test_repository_lock_pins_the_contract_release() -> None:
     pin = version.read_specs_lock()
-    assert pin == version.SpecsPin("bfe4a09e5d7d260afe15576b4fb9fd7530949370", "0.1.0")
+    assert pin == version.SpecsPin(PINNED_SPECS, "0.1.0")
     assert version.contract_version() == "0.1.0"
 
 

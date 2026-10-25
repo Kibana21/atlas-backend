@@ -18,6 +18,7 @@ from tests.integration.conftest import connect
 
 pytestmark = [pytest.mark.integration, pytest.mark.security]
 ATLAS_ROLES = ("atlas_migrator", "atlas_app", "atlas_test_migrator", "atlas_test_app")
+INGEST_ROLES = ("atlas_ingest", "atlas_test_ingest")  # ATLAS-002 (DEC-044 as amended; owner gate G3-R)
 
 
 @pytest.fixture
@@ -90,9 +91,9 @@ def test_no_atlas_role_has_elevated_flags(settings: Settings) -> None:
         rows = conn.execute(
             "SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls "
             "FROM pg_roles WHERE rolname = ANY(%s) ORDER BY 1",
-            (list(ATLAS_ROLES),),
+            (list(ATLAS_ROLES + INGEST_ROLES),),
         ).fetchall()
-    assert [r[0] for r in rows] == sorted(ATLAS_ROLES)
+    assert [r[0] for r in rows] == sorted(ATLAS_ROLES + INGEST_ROLES)
     assert all(tuple(row[1:]) == (False,) * 5 for row in rows)
 
 
@@ -109,7 +110,7 @@ def test_public_has_no_connect_or_temp_on_atlas_databases(settings: Settings) ->
 def test_build_info_reports_the_revision_read_by_the_runtime_role(migrated: None, settings: Settings) -> None:
     with TestClient(create_app(settings.model_copy(update={"diagnostics_enabled": True}))) as client:
         body = client.get("/api/v1/diagnostics/build").json()
-    assert body["db_migration_revision"] == "0001_baseline"
+    assert body["db_migration_revision"] == "0002_canonical_graph"
 
 
 @pytest.mark.ci_auth
@@ -117,11 +118,11 @@ def test_build_info_reports_the_revision_read_by_the_runtime_role(migrated: None
     os.environ.get("ATLAS_EXPECT_PASSWORD_AUTH") != "true",
     reason="CI only (FR-39): local loopback uses trust authentication (DEC-084); no wrong-password probes locally",
 )
-@pytest.mark.parametrize("role", ATLAS_ROLES)
+@pytest.mark.parametrize("role", ATLAS_ROLES + INGEST_ROLES)
 @pytest.mark.parametrize("password", ["wrong-password", ""])
 def test_ci_rejects_wrong_or_missing_passwords(settings: Settings, role: str, password: str) -> None:
     url = make_url(settings.database_url)
-    database = "atlas_test" if role.startswith("atlas_test_") else "atlas_db"
+    database = "atlas_test" if role.startswith("atlas_test_") else "atlas_db"  # each role's own database
     with pytest.raises(psycopg.OperationalError, match="password"):
         psycopg.connect(
             host=url.host, port=url.port or 5432, user=role, password=password, dbname=database, connect_timeout=5

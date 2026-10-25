@@ -33,3 +33,34 @@ def test_offline_mode_is_refused() -> None:
 def test_app_role_comes_from_settings() -> None:
     context = SimpleNamespace(config=SimpleNamespace(attributes={migrations.APP_ROLE_ATTRIBUTE: "atlas_test_app"}))
     assert migrations.app_role(context) == "atlas_test_app"
+
+
+def test_ingest_role_is_required_for_canonical_grants() -> None:
+    context = SimpleNamespace(
+        config=SimpleNamespace(attributes={migrations.INGEST_ROLE_ATTRIBUTE: "atlas_test_ingest"})
+    )
+    assert migrations.ingest_role(context) == "atlas_test_ingest"
+    for attributes in ({}, {migrations.INGEST_ROLE_ATTRIBUTE: None}, {migrations.INGEST_ROLE_ATTRIBUTE: ""}):
+        with pytest.raises(migrations.IngestRoleMissingError, match="G3-R"):
+            migrations.ingest_role(SimpleNamespace(config=SimpleNamespace(attributes=attributes)))
+
+
+def test_metadata_holds_the_canonical_tables() -> None:
+    names = {t.name for t in migrations.metadata.sorted_tables}
+    assert {
+        "organization",
+        "change_set",
+        "entity",
+        "entity_version",
+        "relationship",
+        "relationship_version",
+        "external_identity",
+        "entity_alias",
+        "evidence",
+        "fact_assertion",
+        "graph_snapshot",
+        "match_candidate",
+        "reconciliation_case",
+        "taxonomy_release",
+        "relationship_evidence_kind",
+    } <= names

@@ -111,3 +111,36 @@ def test_cors_origins_from_comma_separated_env(monkeypatch: pytest.MonkeyPatch) 
         assert get_settings().cors_origins == ("http://a.test", "http://b.test")
     finally:
         get_settings.cache_clear()
+
+
+INGEST = "postgresql+psycopg://atlas_test_ingest:x@localhost:5432/atlas_test"
+
+
+def test_ingest_settings_are_optional_and_validated() -> None:
+    assert make_settings().ingest_database_url is None  # absent until the owner's gate G3-R
+    s = make_settings(ingest_database_url=INGEST, db_ingest_role="atlas_test_ingest")
+    assert s.db_ingest_role == "atlas_test_ingest"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"ingest_database_url": INGEST}, "must connect as db_ingest_role"),
+        ({"ingest_database_url": INGEST, "db_ingest_role": "atlas_ingest"}, "must connect as db_ingest_role"),
+        (
+            {
+                "ingest_database_url": INGEST.replace("atlas_test_ingest", "atlas_test_app"),
+                "db_ingest_role": "atlas_test_app",
+            },
+            "must differ from the runtime and migration roles",
+        ),
+        (
+            {"ingest_database_url": INGEST.replace("/atlas_test", "/atlas_db"), "db_ingest_role": "atlas_test_ingest"},
+            "test runs must use database",
+        ),
+        ({"ingest_database_url": "mysql://x@h/db", "db_ingest_role": "x"}, "postgresql:// URL"),
+    ],
+)
+def test_unsafe_ingest_settings_are_refused(overrides: dict[str, object], message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        make_settings(**overrides)

@@ -42,8 +42,9 @@ api:
 migrate:
 	ATLAS_ENV_FILE=.env $(UV) alembic upgrade head
 
-## integration: integration tests against the local atlas_test database as the test roles (.env.test)
-integration:
+## integration: integration tests against the local atlas_test database as the test roles (.env.test).
+## Needs the ingestion roles (owner gate G3-R) and the pinned canonical test data (make specs).
+integration: specs
 	ATLAS_ENV_FILE=.env.test $(UV) pytest -m integration --no-cov
 
 ## worker: Taskiq worker (one process) on the Atlas queue <prefix>taskiq:queue (settings from .env)
@@ -69,15 +70,18 @@ secret-scan:
 doctor:
 	ATLAS_ENV_FILE=.env $(UV) python -m atlas.tools.doctor $(if $(SNAPSHOT),--snapshot $(SNAPSHOT),)
 
-## specs: extract contracts/ and tools/ from atlas-specs at the pinned SHA; validate the lock (release mode)
+## specs: extract contracts/, tools/ and the canonical test data from atlas-specs at the pinned SHA; validate the lock.
+## Development and CI pins may be any main commit (contracts/compatibility.md §2); release builds use RELEASE=1,
+## which also requires the commit's contract-v* release tag.
 SPECS_DIR ?= ../atlas-specs
 SPECS_SHA = $(shell awk -F'"' '/^specs_commit:/{print $$2}' specs.lock)
+SPECS_DATA = contracts tools acceptance/test-data/canonical-golden-v1 acceptance/test-data/trust-function-v1
 specs:
 	@test -n "$(SPECS_SHA)" || { echo "specs.lock has no specs_commit"; exit 1; }
 	git -C "$(SPECS_DIR)" cat-file -e "$(SPECS_SHA)^{commit}"
 	rm -rf build/specs && mkdir -p build/specs
-	git -C "$(SPECS_DIR)" archive "$(SPECS_SHA)" contracts tools | tar -x -C build/specs
-	uv run --quiet --locked --project build/specs/tools python build/specs/tools/check_specs_lock.py specs.lock --specs-dir "$(SPECS_DIR)" --release
+	git -C "$(SPECS_DIR)" archive "$(SPECS_SHA)" $(SPECS_DATA) features/ATLAS-002-canonical-graph-foundation/proposals | tar -x -C build/specs
+	uv run --quiet --locked --project build/specs/tools python build/specs/tools/check_specs_lock.py specs.lock --specs-dir "$(SPECS_DIR)" $(if $(RELEASE),--release,)
 
 ## export-openapi: deterministic OpenAPI of the app -> build/openapi.json
 export-openapi:

@@ -152,13 +152,28 @@ jobs:
         run: >-
           uv run python scripts/db/check_bootstrap.py scripts/db/bootstrap.sql
           .deps/atlas-specs/features/ATLAS-001-engineering-foundation/proposals/postgres-local-setup.sql
-      - name: Create the four Atlas roles and databases (random per-run passwords, masked)
+      - name: Ingestion-role SQL copies equal the approved G3-R scripts at the pinned specs commit (ATLAS-002 DP-3)
+        run: |
+          set -euo pipefail
+          proposals=.deps/atlas-specs/features/ATLAS-002-canonical-graph-foundation/proposals
+          for pair in bootstrap-ingest:postgres-ingest-roles bootstrap-ingest-verify:postgres-ingest-roles-verify \
+                      bootstrap-ingest-rollback:postgres-ingest-roles-rollback; do
+            uv run python scripts/db/check_bootstrap.py "scripts/db/${pair%%:*}.sql" "${proposals}/${pair##*:}.sql" --header-only
+          done
+      - name: Extract the pinned canonical test data (golden fixture, trust truth table)
+        run: |
+          set -euo pipefail
+          mkdir -p build/specs
+          git -C .deps/atlas-specs archive "${{ steps.lock.outputs.sha }}" contracts acceptance/test-data/canonical-golden-v1 \
+            acceptance/test-data/trust-function-v1 | tar -x -C build/specs
+      - name: Create the four Atlas roles and databases, then the two ingestion roles (random per-run passwords, masked)
         env:
           PGPASSWORD: ci-ephemeral-bootstrap
           CONTAINER: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
-          for var in ATLAS_MIGRATOR_PASSWORD ATLAS_APP_PASSWORD ATLAS_TEST_MIGRATOR_PASSWORD ATLAS_TEST_APP_PASSWORD; do
+          for var in ATLAS_MIGRATOR_PASSWORD ATLAS_APP_PASSWORD ATLAS_TEST_MIGRATOR_PASSWORD ATLAS_TEST_APP_PASSWORD \
+                     ATLAS_INGEST_PASSWORD ATLAS_TEST_INGEST_PASSWORD; do
             value="$(openssl rand -hex 24)"
             echo "::add-mask::${value}"
             echo "${var}=${value}" >> "$GITHUB_ENV"
@@ -167,24 +182,31 @@ jobs:
           docker exec -i -e PGPASSWORD -e ATLAS_MIGRATOR_PASSWORD -e ATLAS_APP_PASSWORD \
             -e ATLAS_TEST_MIGRATOR_PASSWORD -e ATLAS_TEST_APP_PASSWORD "$CONTAINER" \
             psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - < scripts/db/bootstrap.sql
+          docker exec -i -e PGPASSWORD -e ATLAS_INGEST_PASSWORD -e ATLAS_TEST_INGEST_PASSWORD "$CONTAINER" \
+            psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - < scripts/db/bootstrap-ingest.sql
+          docker exec -i -e PGPASSWORD "$CONTAINER" \
+            psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - < scripts/db/bootstrap-ingest-verify.sql
       - name: Migrate atlas_db as atlas_migrator (B-10)
         env:
           ATLAS_ENV: local
           ATLAS_DATABASE_URL: postgresql+psycopg://atlas_app:${{ env.ATLAS_APP_PASSWORD }}@localhost:5432/atlas_db
           ATLAS_MIGRATION_DATABASE_URL: postgresql+psycopg://atlas_migrator:${{ env.ATLAS_MIGRATOR_PASSWORD }}@localhost:5432/atlas_db
           ATLAS_DB_APP_ROLE: atlas_app
+          ATLAS_DB_INGEST_ROLE: atlas_ingest
           ATLAS_REDIS_URL: redis://localhost/10
           ATLAS_REDIS_KEY_PREFIX: "atlas:local:"
         run: |
           uv run alembic upgrade head
           uv run alembic current | tee build-alembic-current.txt
-          grep -q '^0001_baseline (head)$' build-alembic-current.txt
+          grep -q '^0002_canonical_graph (head)$' build-alembic-current.txt
       - name: Integration tests on atlas_test and Redis DB 11, incl. ci_auth and worker round trip (CP3, CP4)
         env:
           ATLAS_ENV: test
           ATLAS_DATABASE_URL: postgresql+psycopg://atlas_test_app:${{ env.ATLAS_TEST_APP_PASSWORD }}@localhost:5432/atlas_test
           ATLAS_MIGRATION_DATABASE_URL: postgresql+psycopg://atlas_test_migrator:${{ env.ATLAS_TEST_MIGRATOR_PASSWORD }}@localhost:5432/atlas_test
           ATLAS_DB_APP_ROLE: atlas_test_app
+          ATLAS_INGEST_DATABASE_URL: postgresql+psycopg://atlas_test_ingest:${{ env.ATLAS_TEST_INGEST_PASSWORD }}@localhost:5432/atlas_test
+          ATLAS_DB_INGEST_ROLE: atlas_test_ingest
           ATLAS_REDIS_URL: redis://localhost:6379/11
           ATLAS_REDIS_KEY_PREFIX: "atlas:test:ci:"
           ATLAS_EXPECT_PASSWORD_AUTH: "true"
@@ -201,6 +223,28 @@ jobs:
         run: |
           uv run python scripts/redis_keys.py --db 11 --pattern 'atlas:test:*' | tee build-redis-keys.txt
           grep -q ": 0 keys match" build-redis-keys.txt
+      - name: Rollback drill (G3-R) - downgrade 0002 in both databases, then run the approved rollback script copy
+        env:
+          PGPASSWORD: ci-ephemeral-bootstrap
+          CONTAINER: ${{ job.services.postgres.id }}
+          ATLAS_REDIS_URL: redis://localhost:6379/10
+          ATLAS_REDIS_KEY_PREFIX: "atlas:local:"
+        run: |
+          set -euo pipefail
+          ATLAS_ENV=test ATLAS_ENV_FILE=/nonexistent ATLAS_DB_APP_ROLE=atlas_test_app ATLAS_DB_INGEST_ROLE=atlas_test_ingest \
+            ATLAS_REDIS_URL=redis://localhost:6379/11 ATLAS_REDIS_KEY_PREFIX="atlas:test:ci:" \
+            ATLAS_DATABASE_URL="postgresql+psycopg://atlas_test_app:${ATLAS_TEST_APP_PASSWORD}@localhost:5432/atlas_test" \
+            ATLAS_MIGRATION_DATABASE_URL="postgresql+psycopg://atlas_test_migrator:${ATLAS_TEST_MIGRATOR_PASSWORD}@localhost:5432/atlas_test" \
+            uv run alembic downgrade 0001_baseline
+          ATLAS_ENV=local ATLAS_ENV_FILE=/nonexistent ATLAS_DB_APP_ROLE=atlas_app ATLAS_DB_INGEST_ROLE=atlas_ingest \
+            ATLAS_DATABASE_URL="postgresql+psycopg://atlas_app:${ATLAS_APP_PASSWORD}@localhost:5432/atlas_db" \
+            ATLAS_MIGRATION_DATABASE_URL="postgresql+psycopg://atlas_migrator:${ATLAS_MIGRATOR_PASSWORD}@localhost:5432/atlas_db" \
+            uv run alembic downgrade 0001_baseline
+          docker exec -i -e PGPASSWORD "$CONTAINER" \
+            psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - < scripts/db/bootstrap-ingest-rollback.sql
+          docker exec -i -e PGPASSWORD "$CONTAINER" psql -U postgres -d postgres -X -At \
+            -c "SELECT string_agg(rolname, ',' ORDER BY rolname) FROM pg_roles WHERE rolname LIKE 'atlas\_%'" | tee build-roles.txt
+          grep -qx 'atlas_app,atlas_migrator,atlas_test_app,atlas_test_migrator' build-roles.txt
 
   images:
     # B-21/B-24: build api + worker, hadolint, Trivy (vulnerabilities, secrets, Dockerfile), non-root and
