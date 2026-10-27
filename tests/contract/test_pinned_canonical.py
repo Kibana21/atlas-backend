@@ -536,6 +536,19 @@ def m_retype_strands_relationship(ds: Dataset) -> None:
     )
 
 
+def test_atlas_specs_retype_with_unloaded_relationship_taxonomy_is_d01_not_skipped() -> None:
+    """F-10: the D-04 re-check needs the relationship's recorded taxonomy; without it the re-type is D-01."""
+    ds, taxes = golden()
+    m_retype_strands_relationship(ds)
+    org = ds.org_ids()[0]
+    by(ds, "entity_versions", org_id=org, revision_from=9)["taxonomy_version"] = taxonomy.CURRENT_VERSION
+    approved = {taxonomy.CURRENT_VERSION: taxes[taxonomy.CURRENT_VERSION]}
+    found = rules.validate(ds, approved, {org: {9}})  # only the re-type is in scope
+    assert {f.rule for f in found} == {"D-01"}
+    assert all("re-typed" in f.message and "unknown taxonomy version 1.2.0-test.1" in f.message for f in found)
+    assert "D-04" in {f.rule for f in rules.validate(ds, taxes, {org: {9}})}  # every taxonomy loaded
+
+
 def test_a_reclassification_revert_restores_the_earlier_type_and_taxonomy_version() -> None:
     ds, taxes = golden()
     restored = revert_of_r7(ds)
