@@ -25,20 +25,27 @@ pytestmark = pytest.mark.integration
 APPROVED_ONLY = {taxonomy.CURRENT_VERSION: taxonomy.current()}
 
 
-@pytest.fixture
-def conn(request: pytest.FixtureRequest, ingest_url: str) -> Iterator[psycopg.Connection[Any]]:
-    """The ingestion connection inside a transaction that is always rolled back (organizations from cp4_orgs)."""
+@pytest.fixture(scope="module")
+def replayed(request: pytest.FixtureRequest, ingest_url: str) -> Iterator[psycopg.Connection[Any]]:
+    """One ingestion connection with the golden history (r1..r8, every taxonomy loaded) replayed once into
+    cp4-golden, inside a transaction that is always rolled back (organizations from cp4_orgs)."""
     request.getfixturevalue("cp4_orgs")
+    ds, taxes, policy = golden()
+    source = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
     with tx_connect(ingest_url) as c, c.transaction(force_rollback=True):
+        history.replay(c, repository.resolve_scope(c, "cp4-golden"), ds, source, taxes, policy)
         yield c
 
 
+@pytest.fixture
+def conn(replayed: psycopg.Connection[Any]) -> Iterator[psycopg.Connection[Any]]:
+    """Each test runs in a savepoint over the replayed history that is always rolled back."""
+    with replayed.transaction(force_rollback=True):
+        yield replayed
+
+
 def _golden_head(conn: psycopg.Connection[Any]) -> tuple[repository.OrgScope, dict[str, taxonomy.Taxonomy]]:
-    ds, taxes, policy = golden()
-    source = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
-    scope = repository.resolve_scope(conn, "cp4-golden")
-    history.replay(conn, scope, ds, source, taxes, policy)  # r1..r8 with every taxonomy loaded
-    return scope, taxes
+    return repository.resolve_scope(conn, "cp4-golden"), golden()[1]
 
 
 def _warehouse(conn: psycopg.Connection[Any], scope: repository.OrgScope) -> dict[str, Any]:
@@ -57,6 +64,25 @@ def _full_findings(conn: psycopg.Connection[Any], scope: repository.OrgScope, ta
     """Re-validate revision ``rev`` from the database with every taxonomy loaded (what the rules require)."""
     ds = repository.load(conn, scope, history=True)
     return {f.rule for f in rules.validate(ds, taxes, {scope.org_id: {rev}})}
+
+
+# --------------------------------------------------------------------------- replay (runs before the module replay)
+
+
+def test_replay_needs_the_recorded_taxonomy_and_fails_explicitly_without_it(
+    request: pytest.FixtureRequest, ingest_url: str
+) -> None:
+    """Its own rolled-back connection: the fixture's IDs are global keys, so it must run before ``replayed`` exists
+    (first in this file). ``lock_timeout`` turns a reordering into a fast failure instead of a lock wait."""
+    request.getfixturevalue("cp4_orgs")
+    ds, _, policy = golden()
+    source = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
+    with tx_connect(ingest_url) as c, c.transaction(force_rollback=True):
+        c.execute("SET LOCAL lock_timeout = '5s'")
+        scope = repository.resolve_scope(c, "cp4-golden")
+        assert repository.current_revision(c, scope) == 0
+        with pytest.raises(KeyError, match=r"1\.2\.0-test\.1"):
+            history.replay(c, scope, ds, source, APPROVED_ONLY, policy)
 
 
 # --------------------------------------------------------------------------- reference: every taxonomy loaded
@@ -121,16 +147,6 @@ def test_a_revert_restoring_an_unloaded_taxonomy_version_is_refused_with_d01(
     assert refused.value.rule_ids == {"D-01"}
     assert "unknown taxonomy version 1.2.0-test.1" in str(refused.value)
     assert repository.current_revision(conn, scope) == 9
-
-
-def test_replay_needs_the_recorded_taxonomy_and_fails_explicitly_without_it(
-    conn: psycopg.Connection[Any],
-) -> None:
-    ds, _, policy = golden()
-    source = next(o["id"] for o in ds.tables["organizations"] if o["key"] == "default")
-    scope = repository.resolve_scope(conn, "cp4-golden")
-    with pytest.raises(KeyError, match=r"1\.2\.0-test\.1"):
-        history.replay(conn, scope, ds, source, APPROVED_ONLY, policy)
 
 
 def test_historical_reconstruction_needs_no_taxonomy(conn: psycopg.Connection[Any]) -> None:
