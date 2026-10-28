@@ -105,7 +105,7 @@ jobs:
   integration:
     # CP3 (B-09..B-12) and CP4 (B-13..B-16): database, Redis readiness and the worker round trip.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25  # two legs (separated roles, single user); 15 left no headroom after F-09 (13 min)
     permissions:
       contents: read
     services:
